@@ -149,7 +149,6 @@ export default function TakeawayOrderDemo() {
   const [newDriverRate, setNewDriverRate] = useState('1.2');
   const [syncError, setSyncError] = useState('');
   const [syncReady, setSyncReady] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const saveTimerRef = useRef(null);
   const lastSyncedRef = useRef('');
 
@@ -241,7 +240,6 @@ export default function TakeawayOrderDemo() {
       const serialized = serializePayload(payload);
       if (serialized === lastSyncedRef.current) return;
 
-      setSyncing(true);
       const { error } = await supabase
         .from('takeaway_shared_state')
         .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
@@ -250,7 +248,6 @@ export default function TakeawayOrderDemo() {
         lastSyncedRef.current = serialized;
         setSyncError('');
       }
-      setSyncing(false);
     }, 350);
 
     return () => {
@@ -616,7 +613,7 @@ export default function TakeawayOrderDemo() {
           <div>
             <h1 className="text-2xl font-bold">中餐外卖录单 Demo</h1>
             <p className="text-sm text-slate-600">已切换 Supabase 共享存储，支持多人同步数据。</p>
-            <p className="text-xs mt-1 text-slate-500">{syncError ? `⚠️ ${syncError}` : syncing ? '正在同步到 Supabase…' : (syncReady ? '✅ Supabase 已连接（共享模式）' : '正在连接 Supabase…')}</p>
+            <p className="text-xs mt-1 text-slate-500">{syncError ? `⚠️ ${syncError}` : (syncReady ? '✅ Supabase 已连接（自动同步已开启）' : '正在连接 Supabase…')}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             {TABS.map(([key, label]) => (
