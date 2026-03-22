@@ -76,7 +76,6 @@ const seedOrders = [
     driverId: 'drv-a',
     isTemp: false,
     paymentDone: false,
-    delivered: false,
     menu: '宫保鸡丁 + 米饭',
     amount: 10,
     isFreeMeal: false,
@@ -96,7 +95,6 @@ const seedOrders = [
     driverId: 'drv-b',
     isTemp: true,
     paymentDone: false,
-    delivered: false,
     menu: '照烧鸡排饭',
     amount: 10,
     isFreeMeal: false,
@@ -133,7 +131,13 @@ const TABS = [
   ['settings', '设置'],
 ];
 
-export default function TakeawayOrderDemo() {
+export default function paymentToneClass(method) {
+  if (method === "现金") return "text-emerald-600 font-semibold";
+  if (method === "卡") return "text-blue-600 font-semibold";
+  return "text-slate-700";
+}
+
+function TakeawayOrderDemo() {
   const [activeTab, setActiveTab] = useState('orders');
   const [customers, setCustomers] = useState(seedCustomers);
   const [orders, setOrders] = useState(seedOrders);
@@ -379,7 +383,6 @@ export default function TakeawayOrderDemo() {
       driverId: orderForm.driverId,
       isTemp: orderForm.isTemp,
       paymentDone: false,
-      delivered: false,
       menu: menusByDate[orderForm.date] || '',
       amount: Number(settings.mealPrice) * Number(orderForm.qty || 1),
       isFreeMeal: false,
@@ -775,7 +778,7 @@ export default function TakeawayOrderDemo() {
                         <td className="py-2 px-3">{o.note || '-'}</td>
                         <td className="py-2 px-3">{o.isTemp ? <span className="px-2 py-1 rounded bg-orange-100 text-orange-700">临时</span> : '正常'}</td>
                         <td className="py-2 px-3">
-                          <select value={o.paymentMethod} onChange={(e) => updateOrder(o.id, { paymentMethod: e.target.value })} className="rounded border p-1 bg-white">
+                          <select value={o.paymentMethod} onChange={(e) = className={` ${paymentToneClass(o.paymentMethod)}`} className={` ${paymentToneClass(o.paymentMethod)}`}> updateOrder(o.id, { paymentMethod: e.target.value })} className="rounded border p-1 bg-white">
                             <option value="other">其他</option>
                             <option value="wechat">微信</option>
                             <option value="transfer">转账</option>
@@ -1108,9 +1111,7 @@ function DriverTable({ orders, onToggle, driverMap, temp = false }) {
             <th className="py-2 px-3">电话</th>
             <th className="py-2 px-3">备注</th>
             <th className="py-2 px-3">支付</th>
-            <th className="py-2 px-3">收款</th>
-            <th className="py-2 px-3">送达</th>
-            <th className="py-2 px-3">调整</th>
+<th className="py-2 px-3">调整</th>
           </tr>
         </thead>
         <tbody>
@@ -1123,7 +1124,7 @@ function DriverTable({ orders, onToggle, driverMap, temp = false }) {
               <td className="py-2 px-3"><a href={`tel:${o.phone}`} className="text-blue-600 underline">{o.phone}</a></td>
               <td className="py-2 px-3">{o.note || '-'}</td>
               <td className="py-2 px-3">
-                <select value={o.paymentMethod === 'cash' ? 'cash' : 'other'} onChange={(e) => onToggle(o.id, { paymentMethod: e.target.value === 'cash' ? 'cash' : 'other' })} className="rounded border p-1 bg-white">
+                <select value={o.paymentMethod === 'cash' ? 'cash' : 'other'} onChange={(e) = className={` ${paymentToneClass(o.paymentMethod === 'cash' ? 'cash' : 'other')}`}> onToggle(o.id, { paymentMethod: e.target.value === 'cash' ? 'cash' : 'other' })} className="rounded border p-1 bg-white">
                   <option value="other">其他</option>
                   <option value="cash">现金</option>
                 </select>
