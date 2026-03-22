@@ -76,6 +76,7 @@ const seedOrders = [
     driverId: 'drv-a',
     isTemp: false,
     paymentDone: false,
+    delivered: false,
     menu: '宫保鸡丁 + 米饭',
     amount: 10,
     isFreeMeal: false,
@@ -95,6 +96,7 @@ const seedOrders = [
     driverId: 'drv-b',
     isTemp: true,
     paymentDone: false,
+    delivered: false,
     menu: '照烧鸡排饭',
     amount: 10,
     isFreeMeal: false,
@@ -377,6 +379,7 @@ export default function TakeawayOrderDemo() {
       driverId: orderForm.driverId,
       isTemp: orderForm.isTemp,
       paymentDone: false,
+      delivered: false,
       menu: menusByDate[orderForm.date] || '',
       amount: Number(settings.mealPrice) * Number(orderForm.qty || 1),
       isFreeMeal: false,
@@ -1105,6 +1108,8 @@ function DriverTable({ orders, onToggle, driverMap, temp = false }) {
             <th className="py-2 px-3">电话</th>
             <th className="py-2 px-3">备注</th>
             <th className="py-2 px-3">支付</th>
+            <th className="py-2 px-3">收款</th>
+            <th className="py-2 px-3">送达</th>
             <th className="py-2 px-3">调整</th>
           </tr>
         </thead>
@@ -1124,6 +1129,7 @@ function DriverTable({ orders, onToggle, driverMap, temp = false }) {
                 </select>
               </td>
               <td className="py-2 px-3"><input type="checkbox" checked={o.paymentDone} onChange={(e) => onToggle(o.id, { paymentDone: e.target.checked })} /></td>
+              <td className="py-2 px-3"><input type="checkbox" checked={o.delivered} onChange={(e) => onToggle(o.id, { delivered: e.target.checked })} /></td>
               <td className="py-2 px-3">
                 <div className="flex gap-2">
                   <button onClick={() => move(o.id,'up')} className="px-2 py-1 rounded border bg-white">上移</button>
