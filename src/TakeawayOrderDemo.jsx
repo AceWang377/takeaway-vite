@@ -622,8 +622,7 @@ export default function TakeawayOrderDemo() {
                 {label}
               </button>
             ))}
-            <button onClick={resetDemo} className="px-4 py-2 rounded-xl border border-red-300 text-red-600 bg-white">重置Demo</button>
-          </div>
+</div>
         </div>
 
         {activeTab === 'orders' && (
