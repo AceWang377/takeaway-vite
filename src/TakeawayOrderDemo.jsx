@@ -157,6 +157,12 @@ export default function TakeawayOrderDemo() {
   const lastSyncedRef = useRef('');
   const pendingLocalSyncRef = useRef('');
   const orderMutationLockUntilRef = useRef(0);
+  const ordersRef = useRef(seedOrders);
+  const customersRef = useRef(seedCustomers);
+  const expensesRef = useRef(seedExpenses);
+  const menusByDateRef = useRef({ [todayStr()]: '宫保鸡丁 + 米饭' });
+  const settingsRef = useRef(seedSettings);
+  const syncedPayloadRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -181,11 +187,17 @@ export default function TakeawayOrderDemo() {
       }
 
       if (data?.payload) {
+        customersRef.current = data.payload.customers || seedCustomers;
+        ordersRef.current = data.payload.orders || seedOrders;
+        expensesRef.current = data.payload.expenses || seedExpenses;
+        menusByDateRef.current = data.payload.menusByDate || { [todayStr()]: '宫保鸡丁 + 米饭' };
+        settingsRef.current = data.payload.settings || seedSettings;
         setCustomers(data.payload.customers || seedCustomers);
         setOrders(data.payload.orders || seedOrders);
         setExpenses(data.payload.expenses || seedExpenses);
         setMenusByDate(data.payload.menusByDate || { [todayStr()]: '宫保鸡丁 + 米饭' });
         setSettings(data.payload.settings || seedSettings);
+        syncedPayloadRef.current = data.payload;
         lastSyncedRef.current = serializePayload(data.payload);
       } else {
         const payload = {
@@ -202,6 +214,7 @@ export default function TakeawayOrderDemo() {
           setSyncError(`初始化 Supabase 失败：${insertError.message}`);
           return;
         }
+        syncedPayloadRef.current = payload;
         lastSyncedRef.current = serializePayload(payload);
       }
 
@@ -228,11 +241,17 @@ export default function TakeawayOrderDemo() {
         if (pendingLocalSyncRef.current && serialized !== pendingLocalSyncRef.current) return;
         lastSyncedRef.current = serialized;
         pendingLocalSyncRef.current = '';
+        customersRef.current = next.customers || seedCustomers;
+        ordersRef.current = next.orders || seedOrders;
+        expensesRef.current = next.expenses || seedExpenses;
+        menusByDateRef.current = next.menusByDate || { [todayStr()]: '宫保鸡丁 + 米饭' };
+        settingsRef.current = next.settings || seedSettings;
         setCustomers(next.customers || seedCustomers);
         setOrders(next.orders || seedOrders);
         setExpenses(next.expenses || seedExpenses);
         setMenusByDate(next.menusByDate || { [todayStr()]: '宫保鸡丁 + 米饭' });
         setSettings(next.settings || seedSettings);
+        syncedPayloadRef.current = next;
       })
       .subscribe();
 
@@ -245,12 +264,18 @@ export default function TakeawayOrderDemo() {
     if (!supabase || !syncReady) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
-    const payload = { customers, orders, expenses, menusByDate, settings };
-    const serialized = serializePayload(payload);
-    if (serialized === lastSyncedRef.current) return;
-    pendingLocalSyncRef.current = serialized;
-
     saveTimerRef.current = setTimeout(async () => {
+      const payload = {
+        customers: customersRef.current,
+        orders: syncedPayloadRef.current?.orders || ordersRef.current,
+        expenses: expensesRef.current,
+        menusByDate: menusByDateRef.current,
+        settings: settingsRef.current,
+      };
+      const serialized = serializePayload(payload);
+      if (serialized === lastSyncedRef.current) return;
+      pendingLocalSyncRef.current = serialized;
+
       const { error } = await supabase
         .from('takeaway_shared_state')
         .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
@@ -267,7 +292,7 @@ export default function TakeawayOrderDemo() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [customers, orders, expenses, menusByDate, settings, syncReady]);
+  }, [customers, expenses, menusByDate, settings, syncReady]);
 
   const [orderForm, setOrderForm] = useState({
     date: todayStr(),
@@ -290,6 +315,26 @@ export default function TakeawayOrderDemo() {
     amount: '',
     note: '',
   });
+
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
+  useEffect(() => {
+    customersRef.current = customers;
+  }, [customers]);
+
+  useEffect(() => {
+    expensesRef.current = expenses;
+  }, [expenses]);
+
+  useEffect(() => {
+    menusByDateRef.current = menusByDate;
+  }, [menusByDate]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   const driverMap = useMemo(() => {
     const map = {};
@@ -388,6 +433,10 @@ export default function TakeawayOrderDemo() {
   }
 
   async function persistSharedState(nextState) {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     if (!supabase) return;
     const payload = {
       customers: nextState.customers,
@@ -399,6 +448,7 @@ export default function TakeawayOrderDemo() {
     const serialized = serializePayload(payload);
     pendingLocalSyncRef.current = serialized;
     lastSyncedRef.current = serialized;
+    syncedPayloadRef.current = payload;
     const { error } = await supabase
       .from('takeaway_shared_state')
       .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
@@ -525,7 +575,8 @@ export default function TakeawayOrderDemo() {
   }
 
   async function updateOrder(id, patch) {
-    const nextOrders = applyOrders(orders.map((o) => (o.id === id ? { ...o, ...patch } : o)), customers, settings);
+    const baseOrders = ordersRef.current;
+    const nextOrders = applyOrders(baseOrders.map((o) => (o.id === id ? { ...o, ...patch } : o)), customers, settings);
     const nextState = {
       customers,
       orders: nextOrders,
@@ -535,6 +586,7 @@ export default function TakeawayOrderDemo() {
     };
 
     orderMutationLockUntilRef.current = Date.now() + 1500;
+    ordersRef.current = nextOrders;
     setOrders(nextOrders);
 
     await persistSharedState(nextState);
@@ -740,32 +792,37 @@ export default function TakeawayOrderDemo() {
 
   window.moveDriverOrder = moveOrder;
 
-  function moveOrder(orderId, direction) {
-    orderMutationLockUntilRef.current = Date.now() + 1500;
-    setOrders((prev) => {
-      const dayOrders = sortOrdersForRoute(prev.filter((order) => order.date === todayOrdersDate));
-      const movableOrders = todayDriverFilter === 'all'
-        ? dayOrders
-        : dayOrders.filter((order) => order.driverId === todayDriverFilter);
+  async function moveOrder(orderId, direction) {
+    const baseOrders = ordersRef.current;
+    const dayOrders = sortOrdersForRoute(baseOrders.filter((order) => order.date === todayOrdersDate));
+    const movableOrders = todayDriverFilter === 'all'
+      ? dayOrders
+      : dayOrders.filter((order) => order.driverId === todayDriverFilter);
 
-      const currentIndex = movableOrders.findIndex((order) => order.id === orderId);
-      if (currentIndex < 0) return prev;
+    const currentIndex = movableOrders.findIndex((order) => order.id === orderId);
+    if (currentIndex < 0) return;
 
-      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      if (nextIndex < 0 || nextIndex >= movableOrders.length) return prev;
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (nextIndex < 0 || nextIndex >= movableOrders.length) return;
 
-      const reorderedMovable = [...movableOrders];
-      [reorderedMovable[currentIndex], reorderedMovable[nextIndex]] = [reorderedMovable[nextIndex], reorderedMovable[currentIndex]];
-      const reorderedIds = reorderedMovable.map((order) => order.id);
+    const reorderedMovable = [...movableOrders];
+    [reorderedMovable[currentIndex], reorderedMovable[nextIndex]] = [reorderedMovable[nextIndex], reorderedMovable[currentIndex]];
+    const reorderedIds = reorderedMovable.map((order) => order.id);
 
-      let pointer = 0;
-      const nextDayIds = dayOrders.map((order) => {
-        if (todayDriverFilter !== 'all' && order.driverId !== todayDriverFilter) return order.id;
-        return reorderedIds[pointer++] ?? order.id;
-      });
-
-      return reorderDayByIds(prev, todayOrdersDate, nextDayIds);
+    let pointer = 0;
+    const nextDayIds = dayOrders.map((order) => {
+      if (todayDriverFilter !== 'all' && order.driverId !== todayDriverFilter) return order.id;
+      return reorderedIds[pointer++] ?? order.id;
     });
+
+    const nextOrders = reorderDayByIds(baseOrders, todayOrdersDate, nextDayIds);
+    const nextState = { customers, orders: nextOrders, expenses, menusByDate, settings };
+
+    orderMutationLockUntilRef.current = Date.now() + 1500;
+    ordersRef.current = nextOrders;
+    setOrders(nextOrders);
+
+    await persistSharedState(nextState);
   }
 
   function writeDriverFeeToCashflow(driverId) {
