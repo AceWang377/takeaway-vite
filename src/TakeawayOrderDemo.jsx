@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -149,6 +155,8 @@ export default function TakeawayOrderDemo() {
   const [syncReady, setSyncReady] = useState(false);
   const saveTimerRef = useRef(null);
   const lastSyncedRef = useRef('');
+  const pendingLocalSyncRef = useRef('');
+  const orderMutationLockUntilRef = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -216,7 +224,10 @@ export default function TakeawayOrderDemo() {
         if (!next) return;
         const serialized = serializePayload(next);
         if (serialized === lastSyncedRef.current) return;
+        if (Date.now() < orderMutationLockUntilRef.current && serialized !== pendingLocalSyncRef.current) return;
+        if (pendingLocalSyncRef.current && serialized !== pendingLocalSyncRef.current) return;
         lastSyncedRef.current = serialized;
+        pendingLocalSyncRef.current = '';
         setCustomers(next.customers || seedCustomers);
         setOrders(next.orders || seedOrders);
         setExpenses(next.expenses || seedExpenses);
@@ -233,17 +244,22 @@ export default function TakeawayOrderDemo() {
   useEffect(() => {
     if (!supabase || !syncReady) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      const payload = { customers, orders, expenses, menusByDate, settings };
-      const serialized = serializePayload(payload);
-      if (serialized === lastSyncedRef.current) return;
 
+    const payload = { customers, orders, expenses, menusByDate, settings };
+    const serialized = serializePayload(payload);
+    if (serialized === lastSyncedRef.current) return;
+    pendingLocalSyncRef.current = serialized;
+
+    saveTimerRef.current = setTimeout(async () => {
       const { error } = await supabase
         .from('takeaway_shared_state')
         .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
-      if (error) setSyncError(`保存 Supabase 失败：${error.message}`);
-      else {
+      if (error) {
+        setSyncError(`保存 Supabase 失败：${error.message}`);
+        pendingLocalSyncRef.current = '';
+      } else {
         lastSyncedRef.current = serialized;
+        pendingLocalSyncRef.current = '';
         setSyncError('');
       }
     }, 350);
@@ -332,8 +348,10 @@ export default function TakeawayOrderDemo() {
 
   function refreshFreeMealStatus(nextOrders, customerState = customers, currentSettings = settings) {
     const groups = {};
+    const computedById = new Map();
     const sorted = [...nextOrders].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    return sorted.map((o) => {
+
+    sorted.forEach((o) => {
       const customerKey = o.customerId;
       if (!groups[customerKey]) {
         const customer = customerState.find((c) => c.customerId === customerKey);
@@ -353,19 +371,103 @@ export default function TakeawayOrderDemo() {
           stats.cashPaidCount += 1;
         }
       }
-      return {
-        ...o,
+      computedById.set(o.id, {
         isFreeMeal,
         amount: isFreeMeal ? 0 : Number(currentSettings.mealPrice) * Number(o.qty || 1),
-      };
+      });
+    });
+
+    return nextOrders.map((o) => ({
+      ...o,
+      ...(computedById.get(o.id) || { isFreeMeal: false, amount: Number(currentSettings.mealPrice) * Number(o.qty || 1) }),
+    }));
+  }
+
+  function applyOrders(nextOrders, customerState = customers, currentSettings = settings) {
+    return normalizeRouteOrders(refreshFreeMealStatus(nextOrders, customerState, currentSettings));
+  }
+
+  async function persistSharedState(nextState) {
+    if (!supabase) return;
+    const payload = {
+      customers: nextState.customers,
+      orders: nextState.orders,
+      expenses: nextState.expenses,
+      menusByDate: nextState.menusByDate,
+      settings: nextState.settings,
+    };
+    const serialized = serializePayload(payload);
+    pendingLocalSyncRef.current = serialized;
+    lastSyncedRef.current = serialized;
+    const { error } = await supabase
+      .from('takeaway_shared_state')
+      .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
+    if (error) {
+      setSyncError(`保存 Supabase 失败：${error.message}`);
+    } else {
+      setSyncError('');
+    }
+  }
+
+  function sortOrdersForRoute(list) {
+    return [...list].sort((a, b) => {
+      const ao = Number(a.routeOrder ?? Number.MAX_SAFE_INTEGER);
+      const bo = Number(b.routeOrder ?? Number.MAX_SAFE_INTEGER);
+      if (ao !== bo) return ao - bo;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
   }
 
-  function saveOrder(e) {
+  function normalizeRouteOrders(list) {
+    const routeOrderMap = new Map();
+    const dates = [...new Set(list.map((order) => order.date))];
+
+    dates.forEach((date) => {
+      const dayOrders = sortOrdersForRoute(list.filter((order) => order.date === date));
+      dayOrders.forEach((order, index) => {
+        routeOrderMap.set(order.id, index + 1);
+      });
+    });
+
+    return list.map((order) => ({
+      ...order,
+      routeOrder: routeOrderMap.get(order.id) ?? Number(order.routeOrder ?? 1),
+    }));
+  }
+
+  function reorderDayByIds(list, date, orderedIds) {
+    const routeOrderMap = new Map(orderedIds.map((id, index) => [id, index + 1]));
+    return list.map((order) => (
+      order.date === date && routeOrderMap.has(order.id)
+        ? { ...order, routeOrder: routeOrderMap.get(order.id) }
+        : order
+    ));
+  }
+
+  function moveIdInList(ids, targetId, direction) {
+    const index = ids.findIndex((id) => id === targetId);
+    if (index < 0) return ids;
+    const nextIndex = direction === 'up' ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= ids.length) return ids;
+    const nextIds = [...ids];
+    [nextIds[index], nextIds[nextIndex]] = [nextIds[nextIndex], nextIds[index]];
+    return nextIds;
+  }
+
+  async function saveOrder(e) {
     e.preventDefault();
     if (!orderForm.customerId || !orderForm.address || !orderForm.phone) return;
-    ensureCustomerExists(orderForm);
+
+    const savedDate = orderForm.date;
+    const nextCustomer = ensureCustomerExists(orderForm);
+    const nextCustomers = customers.some((c) => c.id === nextCustomer.id)
+      ? customers.map((c) => (c.id === nextCustomer.id ? nextCustomer : c))
+      : [nextCustomer, ...customers];
+
     const existingOrder = orders.find((o) => o.id === editingOrderId);
+    const nextRouteOrder = existingOrder?.routeOrder
+      || (orders.filter((o) => o.date === orderForm.date).reduce((max, o) => Math.max(max, Number(o.routeOrder || 0)), 0) + 1);
+
     const record = {
       id: editingOrderId || uid(),
       date: orderForm.date,
@@ -384,8 +486,29 @@ export default function TakeawayOrderDemo() {
       amount: Number(settings.mealPrice) * Number(orderForm.qty || 1),
       isFreeMeal: false,
       createdAt: existingOrder?.createdAt || new Date().toISOString(),
+      routeOrder: nextRouteOrder,
     };
-    setOrders((prev) => refreshFreeMealStatus(editingOrderId ? prev.map((o) => (o.id === editingOrderId ? record : o)) : [record, ...prev]));
+
+    const nextOrders = applyOrders(
+      editingOrderId ? orders.map((o) => (o.id === editingOrderId ? record : o)) : [...orders, record],
+      nextCustomers,
+      settings
+    );
+
+    const nextState = {
+      customers: nextCustomers,
+      orders: nextOrders,
+      expenses,
+      menusByDate,
+      settings,
+    };
+
+    orderMutationLockUntilRef.current = Date.now() + 1500;
+    setCustomers(nextCustomers);
+    setOrders(nextOrders);
+    setTodayOrdersDate(savedDate);
+    setTodayDriverFilter('all');
+    setActiveTab('todayOrders');
     setEditingOrderId(null);
     setOrderForm((prev) => ({
       ...prev,
@@ -397,10 +520,13 @@ export default function TakeawayOrderDemo() {
       isTemp: false,
       driverId: settings.drivers?.[0]?.id || '',
     }));
+
+    await persistSharedState(nextState);
   }
 
   function updateOrder(id, patch) {
-    setOrders((prev) => refreshFreeMealStatus(prev.map((o) => (o.id === id ? { ...o, ...patch } : o))));
+    orderMutationLockUntilRef.current = Date.now() + 1500;
+    setOrders((prev) => applyOrders(prev.map((o) => (o.id === id ? { ...o, ...patch } : o))));
   }
 
   function editOrder(order) {
@@ -419,14 +545,15 @@ export default function TakeawayOrderDemo() {
   }
 
   function deleteOrder(id) {
-    setOrders((prev) => prev.filter((o) => o.id !== id));
+    orderMutationLockUntilRef.current = Date.now() + 1500;
+    setOrders((prev) => normalizeRouteOrders(prev.filter((o) => o.id !== id)));
     if (editingOrderId === id) setEditingOrderId(null);
   }
 
   function updateCustomerManualCash(customerId, value) {
     const nextCustomers = customers.map((c) => (c.customerId === customerId ? { ...c, manualCashHistory: Number(value || 0) } : c));
     setCustomers(nextCustomers);
-    setOrders((prev) => refreshFreeMealStatus(prev, nextCustomers));
+    setOrders((prev) => applyOrders(prev, nextCustomers));
   }
 
   function updateCustomer(rowId, patch) {
@@ -443,7 +570,7 @@ export default function TakeawayOrderDemo() {
         : c
     ));
     setCustomers(nextCustomers);
-    setOrders((prev) => refreshFreeMealStatus(prev.map((o) => (
+    setOrders((prev) => applyOrders(prev.map((o) => (
       o.customerId === oldCustomerId
         ? { ...o, customerId: nextCustomerId, phone: nextPhone, address: nextAddress, note: o.note === existing.note ? nextNote : o.note }
         : o
@@ -540,23 +667,12 @@ export default function TakeawayOrderDemo() {
   }, [filteredOrders, settings.drivers, driverMap]);
 
   const currentDayOrders = useMemo(() => {
-    const dayOrders = orders.filter((o) => o.date === todayOrdersDate);
-    const filtered = todayDriverFilter === 'all' ? dayOrders : dayOrders.filter((o) => o.driverId === todayDriverFilter);
-    return [...filtered].sort((a, b) => {
-      const ao = a.routeOrder ?? 9999;
-      const bo = b.routeOrder ?? 9999;
-      if (ao !== bo) return ao - bo;
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
+    const dayOrders = sortOrdersForRoute(orders.filter((o) => o.date === todayOrdersDate));
+    return todayDriverFilter === 'all' ? dayOrders : dayOrders.filter((o) => o.driverId === todayDriverFilter);
   }, [orders, todayOrdersDate, todayDriverFilter]);
 
   const driverOrdersToday = useMemo(() => {
-    return [...orders.filter((o) => o.date === todayStr())].sort((a, b) => {
-      const ao = a.routeOrder ?? 9999;
-      const bo = b.routeOrder ?? 9999;
-      if (ao !== bo) return ao - bo;
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
+    return sortOrdersForRoute(orders.filter((o) => o.date === todayStr()));
   }, [orders]);
 
   const visibleDriverOrders = useMemo(() => {
@@ -587,20 +703,31 @@ export default function TakeawayOrderDemo() {
   window.moveDriverOrder = moveOrder;
 
   function moveOrder(orderId, direction) {
-    const dayOrders = currentDayOrders;
-    const index = dayOrders.findIndex((o) => o.id === orderId);
-    if (index < 0) return;
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= dayOrders.length) return;
-    const reordered = [...dayOrders];
-    const temp = reordered[index];
-    reordered[index] = reordered[targetIndex];
-    reordered[targetIndex] = temp;
-    const patches = reordered.map((o, idx) => ({ id: o.id, routeOrder: idx + 1 }));
-    setOrders((prev) => prev.map((o) => {
-      const found = patches.find((p) => p.id === o.id);
-      return found ? { ...o, routeOrder: found.routeOrder } : o;
-    }));
+    orderMutationLockUntilRef.current = Date.now() + 1500;
+    setOrders((prev) => {
+      const dayOrders = sortOrdersForRoute(prev.filter((order) => order.date === todayOrdersDate));
+      const movableOrders = todayDriverFilter === 'all'
+        ? dayOrders
+        : dayOrders.filter((order) => order.driverId === todayDriverFilter);
+
+      const currentIndex = movableOrders.findIndex((order) => order.id === orderId);
+      if (currentIndex < 0) return prev;
+
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      if (nextIndex < 0 || nextIndex >= movableOrders.length) return prev;
+
+      const reorderedMovable = [...movableOrders];
+      [reorderedMovable[currentIndex], reorderedMovable[nextIndex]] = [reorderedMovable[nextIndex], reorderedMovable[currentIndex]];
+      const reorderedIds = reorderedMovable.map((order) => order.id);
+
+      let pointer = 0;
+      const nextDayIds = dayOrders.map((order) => {
+        if (todayDriverFilter !== 'all' && order.driverId !== todayDriverFilter) return order.id;
+        return reorderedIds[pointer++] ?? order.id;
+      });
+
+      return reorderDayByIds(prev, todayOrdersDate, nextDayIds);
+    });
   }
 
   function writeDriverFeeToCashflow(driverId) {
@@ -803,6 +930,7 @@ export default function TakeawayOrderDemo() {
                     <th className="py-2 px-3">电话</th>
                     <th className="py-2 px-3">备注</th>
                     <th className="py-2 px-3">支付方式</th>
+                    <th className="py-2 px-3">调整</th>
                     <th className="py-2 px-3">操作</th>
                   </tr>
                 </thead>
@@ -832,6 +960,12 @@ export default function TakeawayOrderDemo() {
                         </td>
                         <td className="py-2 px-3">
                           <div className="flex gap-2 flex-wrap">
+                            <button type="button" onClick={() => moveOrder(o.id, 'up')} className="px-2 py-1 rounded border bg-white">上移</button>
+                            <button type="button" onClick={() => moveOrder(o.id, 'down')} className="px-2 py-1 rounded border bg-white">下移</button>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex gap-2 flex-wrap">
                             <button onClick={() => editOrder(o)} className="px-2 py-1 rounded border bg-blue-50 text-blue-700 border-blue-200">修改</button>
                             <button onClick={() => deleteOrder(o.id)} className="px-2 py-1 rounded border bg-red-50 text-red-700 border-red-200">删除</button>
                           </div>
@@ -839,7 +973,7 @@ export default function TakeawayOrderDemo() {
                       </tr>
                     );
                   })}
-                  {currentDayOrders.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-slate-500">当前日期暂无订单。</td></tr>}
+                  {currentDayOrders.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-slate-500">当前日期暂无订单。</td></tr>}
                 </tbody>
               </table>
             </div>
