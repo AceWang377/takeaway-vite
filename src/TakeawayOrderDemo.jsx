@@ -544,10 +544,37 @@ export default function TakeawayOrderDemo() {
     setActiveTab('orders');
   }
 
-  function deleteOrder(id) {
-    orderMutationLockUntilRef.current = Date.now() + 1500;
-    setOrders((prev) => normalizeRouteOrders(prev.filter((o) => o.id !== id)));
+  async function deleteOrder(id) {
+    const nextOrders = normalizeRouteOrders(orders.filter((o) => o.id !== id));
+    const payload = {
+      customers,
+      orders: nextOrders,
+      expenses,
+      menusByDate,
+      settings,
+    };
+    const serialized = serializePayload(payload);
+
+    orderMutationLockUntilRef.current = Date.now() + 2500;
+    pendingLocalSyncRef.current = serialized;
+    lastSyncedRef.current = serialized;
+
+    setOrders(nextOrders);
     if (editingOrderId === id) setEditingOrderId(null);
+
+    if (!supabase) return;
+
+    const { error } = await supabase
+      .from('takeaway_shared_state')
+      .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
+
+    if (error) {
+      setSyncError(`保存 Supabase 失败：${error.message}`);
+      pendingLocalSyncRef.current = '';
+    } else {
+      setSyncError('');
+      pendingLocalSyncRef.current = '';
+    }
   }
 
   function updateCustomerManualCash(customerId, value) {
