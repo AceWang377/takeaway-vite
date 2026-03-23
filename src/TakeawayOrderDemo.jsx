@@ -265,6 +265,8 @@ export default function TakeawayOrderDemo() {
   });
 
   const [customerSearch, setCustomerSearch] = useState('');
+  const [editingOrderId, setEditingOrderId] = useState(null);
+  const [editingCustomerRowId, setEditingCustomerRowId] = useState(null);
   const [expenseForm, setExpenseForm] = useState({
     date: todayStr(),
     type: 'material',
@@ -363,8 +365,9 @@ export default function TakeawayOrderDemo() {
     e.preventDefault();
     if (!orderForm.customerId || !orderForm.address || !orderForm.phone) return;
     ensureCustomerExists(orderForm);
+    const existingOrder = orders.find((o) => o.id === editingOrderId);
     const record = {
-      id: uid(),
+      id: editingOrderId || uid(),
       date: orderForm.date,
       year: new Date(orderForm.date).getFullYear(),
       week: getISOWeek(orderForm.date),
@@ -373,16 +376,17 @@ export default function TakeawayOrderDemo() {
       phone: orderForm.phone,
       qty: Number(orderForm.qty || 1),
       note: orderForm.note,
-      paymentMethod: 'other',
+      paymentMethod: existingOrder?.paymentMethod || 'other',
       driverId: orderForm.driverId,
       isTemp: orderForm.isTemp,
-      paymentDone: false,
+      paymentDone: existingOrder?.paymentDone || false,
       menu: menusByDate[orderForm.date] || '',
       amount: Number(settings.mealPrice) * Number(orderForm.qty || 1),
       isFreeMeal: false,
-      createdAt: new Date().toISOString(),
+      createdAt: existingOrder?.createdAt || new Date().toISOString(),
     };
-    setOrders((prev) => refreshFreeMealStatus([record, ...prev]));
+    setOrders((prev) => refreshFreeMealStatus(editingOrderId ? prev.map((o) => (o.id === editingOrderId ? record : o)) : [record, ...prev]));
+    setEditingOrderId(null);
     setOrderForm((prev) => ({
       ...prev,
       customerId: '',
@@ -399,10 +403,60 @@ export default function TakeawayOrderDemo() {
     setOrders((prev) => refreshFreeMealStatus(prev.map((o) => (o.id === id ? { ...o, ...patch } : o))));
   }
 
+  function editOrder(order) {
+    setEditingOrderId(order.id);
+    setOrderForm({
+      date: order.date,
+      customerId: order.customerId || '',
+      address: order.address || '',
+      phone: order.phone || '',
+      qty: Number(order.qty || 1),
+      note: order.note || '',
+      isTemp: Boolean(order.isTemp),
+      driverId: order.driverId || settings.drivers?.[0]?.id || '',
+    });
+    setActiveTab('orders');
+  }
+
+  function deleteOrder(id) {
+    setOrders((prev) => prev.filter((o) => o.id !== id));
+    if (editingOrderId === id) setEditingOrderId(null);
+  }
+
   function updateCustomerManualCash(customerId, value) {
     const nextCustomers = customers.map((c) => (c.customerId === customerId ? { ...c, manualCashHistory: Number(value || 0) } : c));
     setCustomers(nextCustomers);
     setOrders((prev) => refreshFreeMealStatus(prev, nextCustomers));
+  }
+
+  function updateCustomer(rowId, patch) {
+    const existing = customers.find((c) => c.id === rowId);
+    if (!existing) return;
+    const oldCustomerId = existing.customerId;
+    const nextCustomerId = patch.customerId ?? existing.customerId;
+    const nextPhone = patch.phone ?? existing.phone;
+    const nextAddress = patch.address ?? existing.address;
+    const nextNote = patch.note ?? existing.note;
+    const nextCustomers = customers.map((c) => (
+      c.id === existing.id
+        ? { ...c, customerId: nextCustomerId, phone: nextPhone, address: nextAddress, note: nextNote }
+        : c
+    ));
+    setCustomers(nextCustomers);
+    setOrders((prev) => refreshFreeMealStatus(prev.map((o) => (
+      o.customerId === oldCustomerId
+        ? { ...o, customerId: nextCustomerId, phone: nextPhone, address: nextAddress, note: o.note === existing.note ? nextNote : o.note }
+        : o
+    )), nextCustomers));
+  }
+
+  function deleteCustomer(rowId) {
+    const existing = customers.find((c) => c.id === rowId);
+    if (!existing) return;
+    const nextCustomers = customers.filter((c) => c.id !== rowId);
+    setCustomers(nextCustomers);
+    setOrders((prev) => prev.filter((o) => o.customerId !== existing.customerId));
+    if (editingCustomerRowId === rowId) setEditingCustomerRowId(null);
   }
 
   function addDriver() {
@@ -678,7 +732,7 @@ export default function TakeawayOrderDemo() {
                     <div className="text-xl font-bold">{fmtMoney(Number(settings.mealPrice) * Number(orderForm.qty || 1))}</div>
                     <div className="text-xs text-slate-500 mt-1">支付方式请在"今日订单"页面确认，统计与免餐会同步更新。</div>
                   </div>
-                  <button className="px-5 py-3 rounded-xl bg-slate-900 text-white">保存订单</button>
+                  <button type="submit" className="px-5 py-3 rounded-xl bg-slate-900 text-white">{editingOrderId ? '更新订单' : '保存订单'}</button>
                 </div>
               </form>
             </div>
@@ -748,9 +802,8 @@ export default function TakeawayOrderDemo() {
                     <th className="py-2 px-3">地址</th>
                     <th className="py-2 px-3">电话</th>
                     <th className="py-2 px-3">备注</th>
-                    <th className="py-2 px-3">类型</th>
                     <th className="py-2 px-3">支付方式</th>
-                    <th className="py-2 px-3">调整</th>
+                    <th className="py-2 px-3">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -769,7 +822,6 @@ export default function TakeawayOrderDemo() {
                         <td className="py-2 px-3">{o.address}</td>
                         <td className="py-2 px-3">{o.phone}</td>
                         <td className="py-2 px-3">{o.note || '-'}</td>
-                        <td className="py-2 px-3">{o.isTemp ? <span className="px-2 py-1 rounded bg-orange-100 text-orange-700">临时</span> : '正常'}</td>
                         <td className="py-2 px-3">
                           <select value={o.paymentMethod} onChange={(e) => updateOrder(o.id, { paymentMethod: e.target.value })} className="rounded border p-1 bg-white">
                             <option value="other">其他</option>
@@ -779,15 +831,15 @@ export default function TakeawayOrderDemo() {
                           </select>
                         </td>
                         <td className="py-2 px-3">
-                          <div className="flex gap-2">
-                            <button onClick={() => moveOrder(o.id, 'up')} className="px-2 py-1 rounded border bg-white">上移</button>
-                            <button onClick={() => moveOrder(o.id, 'down')} className="px-2 py-1 rounded border bg-white">下移</button>
+                          <div className="flex gap-2 flex-wrap">
+                            <button onClick={() => editOrder(o)} className="px-2 py-1 rounded border bg-blue-50 text-blue-700 border-blue-200">修改</button>
+                            <button onClick={() => deleteOrder(o.id)} className="px-2 py-1 rounded border bg-red-50 text-red-700 border-red-200">删除</button>
                           </div>
                         </td>
                       </tr>
                     );
                   })}
-                  {currentDayOrders.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-slate-500">当前日期暂无订单。</td></tr>}
+                  {currentDayOrders.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-slate-500">当前日期暂无订单。</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -811,26 +863,42 @@ export default function TakeawayOrderDemo() {
                     <th className="py-2 pr-3">手动现金历史</th>
                     <th className="py-2 pr-3">现金订单</th>
                     <th className="py-2 pr-3">可用免餐</th>
-                    <th className="py-2 pr-3">最近点餐记录</th>
+                    <th className="py-2 pr-3">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {customerRows.map((row) => (
+                  {customerRows.map((row) => {
+                    const isEditing = editingCustomerRowId === row.id;
+                    return (
                     <tr key={row.id} className="border-b align-top">
-                      <td className="py-3 pr-3 font-medium">{row.customerId}</td>
-                      <td className="py-3 pr-3">{row.phone}</td>
-                      <td className="py-3 pr-3">{row.address}</td>
+                      <td className="py-3 pr-3 font-medium">
+                        {isEditing ? (
+                          <input value={row.customerId} onChange={(e) => updateCustomer(row.id, { customerId: e.target.value })} className="w-full rounded border p-1" />
+                        ) : row.customerId}
+                      </td>
+                      <td className="py-3 pr-3">
+                        {isEditing ? (
+                          <input value={row.phone} onChange={(e) => updateCustomer(row.id, { phone: e.target.value })} className="w-full rounded border p-1" />
+                        ) : row.phone}
+                      </td>
+                      <td className="py-3 pr-3">
+                        {isEditing ? (
+                          <input value={row.address} onChange={(e) => updateCustomer(row.id, { address: e.target.value })} className="w-full rounded border p-1" />
+                        ) : row.address}
+                      </td>
                       <td className="py-3 pr-3">{row.stats.totalQty}</td>
                       <td className="py-3 pr-3"><input type="number" min="0" value={row.manualCashHistory || 0} onChange={(e) => updateCustomerManualCash(row.customerId, e.target.value)} className="w-20 rounded border p-1" /></td>
                       <td className="py-3 pr-3">{row.stats.cashOrders}</td>
                       <td className="py-3 pr-3"><span className={row.stats.availableFreeMeals > 0 ? 'px-2 py-1 rounded bg-emerald-100 text-emerald-700 font-semibold' : ''}>{row.stats.availableFreeMeals}</span></td>
                       <td className="py-3 pr-3">
-                        <div className="space-y-1">
-                          {row.stats.list.slice(0, 3).map((o) => <div key={o.id} className="text-xs rounded bg-slate-50 p-2">{o.date} · {o.menu || '未填写菜谱'} · x{o.qty} · {o.paymentMethod}</div>)}
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" onClick={() => setEditingCustomerRowId(isEditing ? null : row.id)} className="px-2 py-1 rounded border bg-blue-50 text-blue-700 border-blue-200">{isEditing ? '完成' : '修改'}</button>
+                          <button type="button" onClick={() => deleteCustomer(row.id)} className="px-2 py-1 rounded border bg-red-50 text-red-700 border-red-200">删除</button>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1087,51 +1155,40 @@ function StatCard({ label, value, highlight = false }) {
 }
 
 function DriverTable({ orders, onToggle, driverMap, temp = false }) {
-  const move = (id, dir) => {
-    if (typeof window.moveDriverOrder === 'function') {
-      window.moveDriverOrder(id, dir);
-    }
-  };
   return (
     <div className="overflow-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className={`border-b text-left ${temp ? 'bg-orange-100' : 'bg-slate-50'}`}>
             <th className="py-2 px-3">客户</th>
-            <th className="py-2 px-3">司机</th>
-            <th className="py-2 px-3">订餐量</th>
-            <th className="py-2 px-3">地址</th>
             <th className="py-2 px-3">电话</th>
+            <th className="py-2 px-3">地址</th>
             <th className="py-2 px-3">备注</th>
+            <th className="py-2 px-3">订单量</th>
             <th className="py-2 px-3">支付</th>
-            <th className="py-2 px-3">调整</th>
           </tr>
         </thead>
         <tbody>
           {orders.map((o) => (
             <tr key={o.id} className={`border-b ${temp ? 'bg-orange-50' : driverMap[o.driverId]?.colorClass || 'bg-white'}`}>
               <td className="py-2 px-3 font-medium"><div className="flex items-center gap-2"><span>{o.customerId}</span>{o.isFreeMeal && <span className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">免餐</span>}</div></td>
-              <td className="py-2 px-3">{driverMap[o.driverId]?.name || '-'}</td>
-              <td className="py-2 px-3">x{o.qty}</td>
-              <td className="py-2 px-3">{o.address}</td>
               <td className="py-2 px-3"><a href={`tel:${o.phone}`} className="text-blue-600 underline">{o.phone}</a></td>
+              <td className="py-2 px-3">{o.address}</td>
               <td className="py-2 px-3">{o.note || '-'}</td>
+              <td className="py-2 px-3">x{o.qty}</td>
               <td className="py-2 px-3">
-                <select value={o.paymentMethod === 'cash' ? 'cash' : 'other'} onChange={(e) => onToggle(o.id, { paymentMethod: e.target.value === 'cash' ? 'cash' : 'other' })} className="rounded border p-1 bg-white">
+                <select
+                  value={o.paymentMethod === 'cash' ? 'cash' : 'other'}
+                  onChange={(e) => onToggle(o.id, { paymentMethod: e.target.value === 'cash' ? 'cash' : 'other' })}
+                  className={`rounded border px-2 py-1 font-medium ${o.paymentMethod === 'cash' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-700 border-slate-300'}`}
+                >
                   <option value="other">其他</option>
                   <option value="cash">现金</option>
                 </select>
               </td>
-              <td className="py-2 px-3"><input type="checkbox" checked={o.paymentDone} onChange={(e) => onToggle(o.id, { paymentDone: e.target.checked })} /></td>
-              <td className="py-2 px-3">
-                <div className="flex gap-2">
-                  <button onClick={() => move(o.id,'up')} className="px-2 py-1 rounded border bg-white">上移</button>
-                  <button onClick={() => move(o.id,'down')} className="px-2 py-1 rounded border bg-white">下移</button>
-                </div>
-              </td>
             </tr>
           ))}
-          {orders.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-slate-500">暂无订单。</td></tr>}
+          {orders.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-slate-500">暂无订单。</td></tr>}
         </tbody>
       </table>
     </div>
