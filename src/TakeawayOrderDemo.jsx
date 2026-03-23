@@ -524,9 +524,20 @@ export default function TakeawayOrderDemo() {
     await persistSharedState(nextState);
   }
 
-  function updateOrder(id, patch) {
+  async function updateOrder(id, patch) {
+    const nextOrders = applyOrders(orders.map((o) => (o.id === id ? { ...o, ...patch } : o)), customers, settings);
+    const nextState = {
+      customers,
+      orders: nextOrders,
+      expenses,
+      menusByDate,
+      settings,
+    };
+
     orderMutationLockUntilRef.current = Date.now() + 1500;
-    setOrders((prev) => applyOrders(prev.map((o) => (o.id === id ? { ...o, ...patch } : o))));
+    setOrders(nextOrders);
+
+    await persistSharedState(nextState);
   }
 
   function editOrder(order) {
