@@ -243,7 +243,6 @@ export default function TakeawayOrderDemo() {
         const serialized = serializePayload(next);
         if (serialized === lastSyncedRef.current) return;
         if (Date.now() < orderMutationLockUntilRef.current && serialized !== pendingLocalSyncRef.current) return;
-        if (pendingLocalSyncRef.current && serialized !== pendingLocalSyncRef.current) return;
         lastSyncedRef.current = serialized;
         lastAppliedUpdatedAtRef.current = nextUpdatedAt;
         pendingLocalSyncRef.current = '';
@@ -478,6 +477,21 @@ export default function TakeawayOrderDemo() {
     if (error) {
       setSyncError(`保存 Supabase 失败：${error.message}`);
     } else {
+      if (preserveRemoteOrders) {
+        customersRef.current = payload.customers;
+        expensesRef.current = payload.expenses;
+        menusByDateRef.current = payload.menusByDate;
+        settingsRef.current = payload.settings;
+        syncedPayloadRef.current = {
+          ...payload,
+          orders: syncedPayloadRef.current?.orders || ordersRef.current,
+        };
+        setCustomers(payload.customers);
+        setExpenses(payload.expenses);
+        setMenusByDate(payload.menusByDate);
+        setSettings(payload.settings);
+      }
+      pendingLocalSyncRef.current = '';
       setSyncError('');
     }
   }
@@ -576,7 +590,7 @@ export default function TakeawayOrderDemo() {
       settings,
     };
 
-    orderMutationLockUntilRef.current = Date.now() + 1500;
+    orderMutationLockUntilRef.current = Date.now() + 3000;
     setCustomers(nextCustomers);
     setOrders(nextOrders);
     setTodayOrdersDate(savedDate);
@@ -608,7 +622,7 @@ export default function TakeawayOrderDemo() {
       settings,
     };
 
-    orderMutationLockUntilRef.current = Date.now() + 1500;
+    orderMutationLockUntilRef.current = Date.now() + 3000;
     ordersRef.current = nextOrders;
     setOrders(nextOrders);
 
@@ -641,7 +655,7 @@ export default function TakeawayOrderDemo() {
     };
     const serialized = serializePayload(payload);
 
-    orderMutationLockUntilRef.current = Date.now() + 2500;
+    orderMutationLockUntilRef.current = Date.now() + 3000;
     pendingLocalSyncRef.current = serialized;
     lastSyncedRef.current = serialized;
 
@@ -841,7 +855,7 @@ export default function TakeawayOrderDemo() {
     const nextOrders = reorderDayByIds(baseOrders, todayOrdersDate, nextDayIds);
     const nextState = { customers, orders: nextOrders, expenses, menusByDate, settings };
 
-    orderMutationLockUntilRef.current = Date.now() + 1500;
+    orderMutationLockUntilRef.current = Date.now() + 3000;
     ordersRef.current = nextOrders;
     setOrders(nextOrders);
 
