@@ -433,6 +433,16 @@ export default function TakeawayOrderDemo() {
     return normalizeRouteOrders(refreshFreeMealStatus(nextOrders, customerState, currentSettings));
   }
 
+  function buildSharedState(overrides = {}) {
+    return {
+      customers: overrides.customers ?? customersRef.current,
+      orders: overrides.orders ?? ordersRef.current,
+      expenses: overrides.expenses ?? expensesRef.current,
+      menusByDate: overrides.menusByDate ?? menusByDateRef.current,
+      settings: overrides.settings ?? settingsRef.current,
+    };
+  }
+
   async function fetchLatestSharedPayload() {
     if (!supabase) return null;
     const { data, error } = await supabase
@@ -582,16 +592,13 @@ export default function TakeawayOrderDemo() {
       settings
     );
 
-    const nextState = {
-      customers: nextCustomers,
-      orders: nextOrders,
-      expenses,
-      menusByDate,
-      settings,
-    };
+    const nextState = buildSharedState({ customers: nextCustomers, orders: nextOrders });
 
     orderMutationLockUntilRef.current = Date.now() + 3000;
+    customersRef.current = nextCustomers;
+    ordersRef.current = nextOrders;
     setCustomers(nextCustomers);
+    ordersRef.current = nextOrders;
     setOrders(nextOrders);
     setTodayOrdersDate(savedDate);
     setTodayDriverFilter('all');
@@ -612,15 +619,18 @@ export default function TakeawayOrderDemo() {
   }
 
   async function updateOrder(id, patch) {
-    const baseOrders = ordersRef.current;
-    const nextOrders = applyOrders(baseOrders.map((o) => (o.id === id ? { ...o, ...patch } : o)), customers, settings);
-    const nextState = {
-      customers,
-      orders: nextOrders,
-      expenses,
-      menusByDate,
-      settings,
-    };
+    const latestRemote = await fetchLatestSharedPayload();
+    const baseOrders = latestRemote?.payload?.orders || ordersRef.current;
+    const localCurrent = ordersRef.current.find((o) => o.id === id);
+    const nextOrders = applyOrders(baseOrders.map((o) => {
+      if (o.id !== id) return o;
+      return {
+        ...o,
+        routeOrder: localCurrent?.routeOrder ?? o.routeOrder,
+        ...patch,
+      };
+    }), customers, settings);
+    const nextState = buildSharedState({ orders: nextOrders });
 
     orderMutationLockUntilRef.current = Date.now() + 3000;
     ordersRef.current = nextOrders;
@@ -646,13 +656,7 @@ export default function TakeawayOrderDemo() {
 
   async function deleteOrder(id) {
     const nextOrders = normalizeRouteOrders(orders.filter((o) => o.id !== id));
-    const payload = {
-      customers,
-      orders: nextOrders,
-      expenses,
-      menusByDate,
-      settings,
-    };
+    const payload = buildSharedState({ orders: nextOrders });
     const serialized = serializePayload(payload);
 
     orderMutationLockUntilRef.current = Date.now() + 3000;
@@ -679,8 +683,9 @@ export default function TakeawayOrderDemo() {
 
   function updateCustomerManualCash(customerId, value) {
     const nextCustomers = customers.map((c) => (c.customerId === customerId ? { ...c, manualCashHistory: Number(value || 0) } : c));
+    customersRef.current = nextCustomers;
     setCustomers(nextCustomers);
-    setOrders((prev) => applyOrders(prev, nextCustomers));
+    setOrders((prev) => { const next = applyOrders(prev, nextCustomers); ordersRef.current = next; return next; });
   }
 
   function updateCustomer(rowId, patch) {
@@ -696,20 +701,22 @@ export default function TakeawayOrderDemo() {
         ? { ...c, customerId: nextCustomerId, phone: nextPhone, address: nextAddress, note: nextNote }
         : c
     ));
+    customersRef.current = nextCustomers;
     setCustomers(nextCustomers);
-    setOrders((prev) => applyOrders(prev.map((o) => (
+    setOrders((prev) => { const next = applyOrders(prev.map((o) => (
       o.customerId === oldCustomerId
         ? { ...o, customerId: nextCustomerId, phone: nextPhone, address: nextAddress, note: o.note === existing.note ? nextNote : o.note }
         : o
-    )), nextCustomers));
+    )), nextCustomers); ordersRef.current = next; return next; });
   }
 
   function deleteCustomer(rowId) {
     const existing = customers.find((c) => c.id === rowId);
     if (!existing) return;
     const nextCustomers = customers.filter((c) => c.id !== rowId);
+    customersRef.current = nextCustomers;
     setCustomers(nextCustomers);
-    setOrders((prev) => prev.filter((o) => o.customerId !== existing.customerId));
+    setOrders((prev) => { const next = prev.filter((o) => o.customerId !== existing.customerId); ordersRef.current = next; return next; });
     if (editingCustomerRowId === rowId) setEditingCustomerRowId(null);
   }
 
@@ -743,7 +750,7 @@ export default function TakeawayOrderDemo() {
     const nextDrivers = settings.drivers.filter((d) => d.id !== driverId);
     const fallbackId = nextDrivers[0]?.id || '';
     setSettings((prev) => ({ ...prev, drivers: nextDrivers }));
-    setOrders((prev) => prev.map((o) => (o.driverId === driverId ? { ...o, driverId: fallbackId } : o)));
+    setOrders((prev) => { const next = prev.map((o) => (o.driverId === driverId ? { ...o, driverId: fallbackId } : o)); ordersRef.current = next; return next; });
     setOrderForm((prev) => ({ ...prev, driverId: prev.driverId === driverId ? fallbackId : prev.driverId }));
     if (todayDriverFilter === driverId) setTodayDriverFilter('all');
   }
@@ -1341,7 +1348,7 @@ export default function TakeawayOrderDemo() {
             <div>
               <h2 className="font-semibold text-lg mb-4">设置</h2>
               <div className="grid md:grid-cols-2 gap-4">
-                <Field label="单份餐食定价 (£)"><input type="number" step="0.01" value={settings.mealPrice} onChange={(e) => { const next = { ...settings, mealPrice: Number(e.target.value || 0) }; setSettings(next); setOrders((prev) => refreshFreeMealStatus(prev, customers, next)); }} className="w-full rounded-lg border p-2" /></Field>
+                <Field label="单份餐食定价 (£)"><input type="number" step="0.01" value={settings.mealPrice} onChange={(e) => { const next = { ...settings, mealPrice: Number(e.target.value || 0) }; setSettings(next); setOrders((prev) => { const updated = refreshFreeMealStatus(prev, customers, next); ordersRef.current = updated; return updated; }); }} className="w-full rounded-lg border p-2" /></Field>
                 <Field label="初始现金余额 (£)"><input type="number" step="0.01" value={settings.initialCash} onChange={(e) => setSettings({ ...settings, initialCash: Number(e.target.value || 0) })} className="w-full rounded-lg border p-2" /></Field>
                 <Field label="初始账户余额 (£)"><input type="number" step="0.01" value={settings.initialAccount} onChange={(e) => setSettings({ ...settings, initialAccount: Number(e.target.value || 0) })} className="w-full rounded-lg border p-2" /></Field>
                 <div className="md:col-span-2">
