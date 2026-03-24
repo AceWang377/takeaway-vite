@@ -163,6 +163,7 @@ export default function TakeawayOrderDemo() {
   const menusByDateRef = useRef({ [todayStr()]: '宫保鸡丁 + 米饭' });
   const settingsRef = useRef(seedSettings);
   const syncedPayloadRef = useRef(null);
+  const lastAppliedUpdatedAtRef = useRef('');
 
   useEffect(() => {
     let alive = true;
@@ -175,7 +176,7 @@ export default function TakeawayOrderDemo() {
 
       const { data, error } = await supabase
         .from('takeaway_shared_state')
-        .select('payload')
+        .select('payload, updated_at')
         .eq('id', SHARED_DOC_ID)
         .maybeSingle();
 
@@ -198,6 +199,7 @@ export default function TakeawayOrderDemo() {
         setMenusByDate(data.payload.menusByDate || { [todayStr()]: '宫保鸡丁 + 米饭' });
         setSettings(data.payload.settings || seedSettings);
         syncedPayloadRef.current = data.payload;
+        lastAppliedUpdatedAtRef.current = data.updated_at || '';
         lastSyncedRef.current = serializePayload(data.payload);
       } else {
         const payload = {
@@ -215,6 +217,7 @@ export default function TakeawayOrderDemo() {
           return;
         }
         syncedPayloadRef.current = payload;
+        lastAppliedUpdatedAtRef.current = new Date().toISOString();
         lastSyncedRef.current = serializePayload(payload);
       }
 
@@ -234,12 +237,15 @@ export default function TakeawayOrderDemo() {
       .channel('takeaway-shared-state')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'takeaway_shared_state', filter: `id=eq.${SHARED_DOC_ID}` }, (payload) => {
         const next = payload?.new?.payload;
+        const nextUpdatedAt = payload?.new?.updated_at || '';
         if (!next) return;
+        if (nextUpdatedAt && lastAppliedUpdatedAtRef.current && nextUpdatedAt <= lastAppliedUpdatedAtRef.current) return;
         const serialized = serializePayload(next);
         if (serialized === lastSyncedRef.current) return;
         if (Date.now() < orderMutationLockUntilRef.current && serialized !== pendingLocalSyncRef.current) return;
         if (pendingLocalSyncRef.current && serialized !== pendingLocalSyncRef.current) return;
         lastSyncedRef.current = serialized;
+        lastAppliedUpdatedAtRef.current = nextUpdatedAt;
         pendingLocalSyncRef.current = '';
         customersRef.current = next.customers || seedCustomers;
         ordersRef.current = next.orders || seedOrders;
@@ -265,28 +271,24 @@ export default function TakeawayOrderDemo() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     saveTimerRef.current = setTimeout(async () => {
-      const payload = {
+      const nextState = {
         customers: customersRef.current,
-        orders: syncedPayloadRef.current?.orders || ordersRef.current,
+        orders: ordersRef.current,
         expenses: expensesRef.current,
         menusByDate: menusByDateRef.current,
         settings: settingsRef.current,
       };
-      const serialized = serializePayload(payload);
+      const serialized = serializePayload({
+        customers: nextState.customers,
+        orders: syncedPayloadRef.current?.orders || nextState.orders,
+        expenses: nextState.expenses,
+        menusByDate: nextState.menusByDate,
+        settings: nextState.settings,
+      });
       if (serialized === lastSyncedRef.current) return;
-      pendingLocalSyncRef.current = serialized;
 
-      const { error } = await supabase
-        .from('takeaway_shared_state')
-        .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
-      if (error) {
-        setSyncError(`保存 Supabase 失败：${error.message}`);
-        pendingLocalSyncRef.current = '';
-      } else {
-        lastSyncedRef.current = serialized;
-        pendingLocalSyncRef.current = '';
-        setSyncError('');
-      }
+      await persistSharedState(nextState, { preserveRemoteOrders: true });
+      pendingLocalSyncRef.current = '';
     }, 350);
 
     return () => {
@@ -432,15 +434,35 @@ export default function TakeawayOrderDemo() {
     return normalizeRouteOrders(refreshFreeMealStatus(nextOrders, customerState, currentSettings));
   }
 
-  async function persistSharedState(nextState) {
+  async function fetchLatestSharedPayload() {
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('takeaway_shared_state')
+      .select('payload, updated_at')
+      .eq('id', SHARED_DOC_ID)
+      .maybeSingle();
+
+    if (error) {
+      setSyncError(`读取 Supabase 失败：${error.message}`);
+      return null;
+    }
+
+    return data || null;
+  }
+
+  async function persistSharedState(nextState, options = {}) {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
     if (!supabase) return;
+
+    const { preserveRemoteOrders = false } = options;
+    const latestRemote = await fetchLatestSharedPayload();
+    const writeUpdatedAt = new Date().toISOString();
     const payload = {
       customers: nextState.customers,
-      orders: nextState.orders,
+      orders: preserveRemoteOrders ? (latestRemote?.payload?.orders || nextState.orders) : nextState.orders,
       expenses: nextState.expenses,
       menusByDate: nextState.menusByDate,
       settings: nextState.settings,
@@ -448,10 +470,11 @@ export default function TakeawayOrderDemo() {
     const serialized = serializePayload(payload);
     pendingLocalSyncRef.current = serialized;
     lastSyncedRef.current = serialized;
+    lastAppliedUpdatedAtRef.current = writeUpdatedAt;
     syncedPayloadRef.current = payload;
     const { error } = await supabase
       .from('takeaway_shared_state')
-      .upsert({ id: SHARED_DOC_ID, payload, updated_at: new Date().toISOString() });
+      .upsert({ id: SHARED_DOC_ID, payload, updated_at: writeUpdatedAt });
     if (error) {
       setSyncError(`保存 Supabase 失败：${error.message}`);
     } else {
