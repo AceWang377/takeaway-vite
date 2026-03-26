@@ -402,7 +402,12 @@ export default function TakeawayOrder() {
       setOrdersTableError('请先输入管理员邮箱');
       return;
     }
-    const { error } = await supabase.auth.signInWithOtp({ email });
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
     if (error) {
       setOrdersTableError(error.message || '发送登录链接失败');
       return;
