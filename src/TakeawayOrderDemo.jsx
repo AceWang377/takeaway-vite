@@ -198,6 +198,9 @@ export default function TakeawayOrder() {
   const [driverViewMode, setDriverViewMode] = useState('admin');
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverRate, setNewDriverRate] = useState('1.2');
+  const [adminEmailInput, setAdminEmailInput] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authUserEmail, setAuthUserEmail] = useState('');
   const syncError = '';
   const ordersRef = useRef(seedOrders);
   const customersRef = useRef(seedCustomers);
@@ -368,6 +371,51 @@ export default function TakeawayOrder() {
   }
 
 
+
+  async function refreshAdminAccess(session) {
+    try {
+      const user = session?.user;
+      if (!user) {
+        setIsAdmin(false);
+        setAuthUserEmail('');
+        return;
+      }
+      setAuthUserEmail(user.email || '');
+      const { data, error } = await supabase
+        .from('admin_users')
+        .select('role')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (error) {
+        setIsAdmin(false);
+        return;
+      }
+      setIsAdmin(data?.role === 'admin');
+    } catch {
+      setIsAdmin(false);
+    }
+  }
+
+  async function sendAdminMagicLink() {
+    const email = adminEmailInput.trim();
+    if (!email) {
+      setOrdersTableError('请先输入管理员邮箱');
+      return;
+    }
+    const { error } = await supabase.auth.signInWithOtp({ email });
+    if (error) {
+      setOrdersTableError(error.message || '发送登录链接失败');
+      return;
+    }
+    setOrdersTableError('管理员登录链接已发送，请去邮箱点击 Magic Link。');
+  }
+
+  async function logoutAdmin() {
+    await supabase.auth.signOut();
+    setIsAdmin(false);
+    setAuthUserEmail('');
+  }
+
   async function loadOrdersForDate(date) {
     if (!supabase) return;
     setOrdersLoading(true);
@@ -477,6 +525,26 @@ export default function TakeawayOrder() {
     loadSettings();
   }, []);
 
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      refreshAdminAccess(data?.session || null);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      refreshAdminAccess(session || null);
+    });
+
+    return () => {
+      active = false;
+      sub?.subscription?.unsubscribe();
+    };
+  }, []);
+
   function sortOrdersForRoute(list) {
     return [...list].sort((a, b) => {
       const ao = Number(a.routeOrder ?? Number.MAX_SAFE_INTEGER);
@@ -523,6 +591,7 @@ export default function TakeawayOrder() {
   }
 
   async function saveOrder(e) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     e.preventDefault();
     if (!orderForm.customerId || !orderForm.address || !orderForm.phone) return;
 
@@ -616,6 +685,7 @@ export default function TakeawayOrder() {
   }
 
   async function updateOrder(id, patch) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     const current = ordersRef.current.find((o) => o.id === id);
     if (!current) return;
 
@@ -670,12 +740,14 @@ export default function TakeawayOrder() {
   }
 
   async function deleteOrder(id) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     await deleteOrderRow(id);
     if (editingOrderId === id) setEditingOrderId(null);
     await loadOrdersForDate(todayOrdersDate);
   }
 
   async function updateCustomerManualCash(customerId, value) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     const existing = customers.find((c) => c.customerId === customerId);
     if (!existing) return;
 
@@ -690,6 +762,7 @@ export default function TakeawayOrder() {
   }
 
   async function updateCustomer(rowId, patch) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     const existing = customers.find((c) => c.id === rowId);
     if (!existing) return;
 
@@ -725,6 +798,7 @@ export default function TakeawayOrder() {
   }
 
   async function deleteCustomer(rowId) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     const existing = customers.find((c) => c.id === rowId);
     if (!existing) return;
 
@@ -748,6 +822,7 @@ export default function TakeawayOrder() {
   }
 
   async function addDriver() {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     const name = newDriverName.trim();
     if (!name) return;
 
@@ -775,6 +850,7 @@ export default function TakeawayOrder() {
   }
 
   async function renameDriver(driverId, name) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     try {
       await updateDriverRow(driverId, { name });
       await loadDrivers();
@@ -784,6 +860,7 @@ export default function TakeawayOrder() {
   }
 
   async function updateDriverRate(driverId, rate) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     try {
       await updateDriverRow(driverId, { rate: Number(rate || 0) });
       await loadDrivers();
@@ -793,6 +870,7 @@ export default function TakeawayOrder() {
   }
 
   async function removeDriver(driverId) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     if ((drivers || []).length <= 1) return;
 
     const nextDrivers = drivers.filter((d) => d.id !== driverId);
@@ -857,6 +935,7 @@ export default function TakeawayOrder() {
 
 
   async function moveOrder(orderId, direction) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     const baseOrders = ordersRef.current;
     const dayOrders = sortOrdersForRoute(baseOrders.filter((order) => order.date === todayOrdersDate));
     const movableOrders = todayDriverFilter === 'all'
@@ -890,6 +969,7 @@ export default function TakeawayOrder() {
 
 
   async function persistSettings(nextSettings) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     try {
       await upsertAppSettings(nextSettings);
     } catch (error) {
@@ -898,6 +978,7 @@ export default function TakeawayOrder() {
   }
 
   async function saveMenuForDate(date, menu) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     try {
       const nextMenus = { ...menusByDateRef.current, [date]: menu };
       menusByDateRef.current = nextMenus;
@@ -909,6 +990,7 @@ export default function TakeawayOrder() {
   }
 
   async function addExpense(e) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     e.preventDefault();
     if (!expenseForm.amount) return;
 
@@ -964,7 +1046,21 @@ export default function TakeawayOrder() {
             <p className="text-sm text-slate-600">已切换为 Supabase 真表数据模式，支持真实业务读写。</p>
             <p className="text-xs mt-1 text-slate-500">{syncError ? `⚠️ ${syncError}` : '✅ Supabase 真表已连接'}</p>
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
+            <input
+              value={adminEmailInput}
+              onChange={(e) => setAdminEmailInput(e.target.value)}
+              placeholder="管理员邮箱"
+              className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm"
+            />
+            {!isAdmin ? (
+              <button onClick={sendAdminMagicLink} className="px-3 py-2 rounded-xl border bg-white">管理员登录</button>
+            ) : (
+              <button onClick={logoutAdmin} className="px-3 py-2 rounded-xl border bg-white">退出管理员</button>
+            )}
+            <span className={`text-xs px-2 py-1 rounded ${isAdmin ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+              {isAdmin ? `管理员: ${authUserEmail || '已登录'}` : '访客只读'}
+            </span>
             {TABS.map(([key, label]) => (
               <button
                 key={key}
