@@ -413,6 +413,7 @@ export default function TakeawayOrder() {
       return;
     }
     setOrdersTableError('管理员登录链接已发送，请去邮箱点击 Magic Link。');
+    window.alert('Magic link sent. Please check your email inbox (and spam folder).');
   }
 
   async function logoutAdmin() {
