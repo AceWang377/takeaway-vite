@@ -14,7 +14,6 @@ export async function listDrivers() {
   const { data, error } = await client
     .from('drivers')
     .select(DRIVER_COLUMNS)
-    .or('active.is.null,active.eq.true')
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });
 

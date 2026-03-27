@@ -208,6 +208,7 @@ export default function TakeawayOrder() {
   const menusByDateRef = useRef({ [todayStr()]: '宫保鸡丁 + 米饭' });
   const settingsRef = useRef(seedSettings);
   const driversRef = useRef(seedSettings.drivers || []);
+  const allDriversRef = useRef(seedSettings.drivers || []);
 
   const [orderForm, setOrderForm] = useState({
     date: todayStr(),
@@ -422,13 +423,40 @@ export default function TakeawayOrder() {
     setAuthUserEmail('');
   }
 
+
+  function normalizeDriverName(name) {
+    return String(name || '').trim().toLowerCase();
+  }
+
+  function getCanonicalDriverId(rawDriverId) {
+    if (!rawDriverId) return rawDriverId || '';
+    const activeDrivers = driversRef.current || [];
+    const allDrivers = allDriversRef.current || activeDrivers;
+
+    if (activeDrivers.some((d) => d.id === rawDriverId)) return rawDriverId;
+
+    const historical = allDrivers.find((d) => d.id === rawDriverId);
+    if (!historical) return rawDriverId;
+
+    const targetName = normalizeDriverName(historical.name);
+    if (!targetName) return rawDriverId;
+
+    const activeMatch = activeDrivers.find((d) => normalizeDriverName(d.name) === targetName);
+    return activeMatch?.id || rawDriverId;
+  }
+
+  function canonicalizeOrderDriver(order) {
+    const canonicalId = getCanonicalDriverId(order.driverId);
+    return canonicalId === order.driverId ? order : { ...order, driverId: canonicalId };
+  }
+
   async function loadOrdersForDate(date) {
     if (!supabase) return;
     setOrdersLoading(true);
     setOrdersTableError('');
     try {
       const rows = await listOrdersByDate(date);
-      const mapped = rows.map(mapDbOrder);
+      const mapped = rows.map(mapDbOrder).map(canonicalizeOrderDriver);
       ordersRef.current = mapped;
       setOrders(mapped);
     } catch (error) {
@@ -444,8 +472,15 @@ export default function TakeawayOrder() {
     try {
       const rows = await listDrivers();
       const mapped = rows.map(mapDbDriver);
-      driversRef.current = mapped;
-      setDrivers(mapped);
+      allDriversRef.current = mapped;
+      const visibleDrivers = mapped.filter((d) => d.active !== false);
+      driversRef.current = visibleDrivers;
+      setDrivers(visibleDrivers);
+      setOrders((prev) => {
+        const fixed = prev.map(canonicalizeOrderDriver);
+        ordersRef.current = fixed;
+        return fixed;
+      });
     } catch (error) {
       setOrdersTableError(error.message || '读取司机列表失败');
     }
@@ -921,8 +956,8 @@ export default function TakeawayOrder() {
   }, [orders, todayOrdersDate, todayDriverFilter]);
 
   const driverOrdersToday = useMemo(() => {
-    return sortOrdersForRoute(orders.filter((o) => o.date === todayStr()));
-  }, [orders]);
+    return sortOrdersForRoute(orders.filter((o) => o.date === todayOrdersDate));
+  }, [orders, todayOrdersDate]);
 
   const visibleDriverOrders = useMemo(() => {
     if (driverViewMode === 'admin') {
