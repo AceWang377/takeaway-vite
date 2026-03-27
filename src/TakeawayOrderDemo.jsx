@@ -289,51 +289,73 @@ export default function TakeawayOrder() {
   const normalizedName = order.customerId.trim();
   const normalizedPhone = (order.phone || '').trim();
   const normalizedAddress = (order.address || '').trim();
+  const normalizedNameKey = normalizedName.toLowerCase();
 
-  const existing = customers.find(
-  (c) =>
-  c.customerId === normalizedName ||
-  (normalizedPhone && c.phone === normalizedPhone)
-  );
+  const findExisting = (list) => list.find((c) => {
+    const byName = (c.customerId || '').trim().toLowerCase() === normalizedNameKey;
+    const byPhone = normalizedPhone && (c.phone || '').trim() === normalizedPhone;
+    return byName || byPhone;
+  });
+
+  let existing = findExisting(customersRef.current || []);
 
   if (existing) {
-  const patch = {};
-  if (normalizedPhone && existing.phone !== normalizedPhone) patch.phone = normalizedPhone;
-  if (normalizedAddress && existing.address !== normalizedAddress) patch.address = normalizedAddress;
+    const patch = {};
+    if (normalizedPhone && existing.phone !== normalizedPhone) patch.phone = normalizedPhone;
+    if (normalizedAddress && existing.address !== normalizedAddress) patch.address = normalizedAddress;
 
-  if (Object.keys(patch).length > 0) {
-  try {
-  await updateCustomerRow(existing.id, patch);
-  await loadCustomers();
-  } catch (error) {
-  setOrdersTableError(error.message || '更新客户失败');
-  }
-  }
+    if (Object.keys(patch).length > 0) {
+      try {
+        await updateCustomerRow(existing.id, patch);
+        await loadCustomers();
+        const refreshed = findExisting(customersRef.current || []);
+        if (refreshed) return refreshed;
+      } catch (error) {
+        // Don't block order creation; keep best-effort and continue
+        setOrdersTableError(error.message || '更新客户失败（订单已继续保存）');
+      }
+    }
 
-  return {
-  ...existing,
-  ...patch,
-  };
+    return { ...existing, ...patch };
   }
 
   const nextCustomer = {
-  id: uid(),
-  customerId: normalizedName,
-  phone: normalizedPhone,
-  address: normalizedAddress,
-  note: '',
-  manualCashHistory: 0,
+    id: uid(),
+    customerId: normalizedName,
+    phone: normalizedPhone,
+    address: normalizedAddress,
+    note: '',
+    manualCashHistory: 0,
   };
 
   try {
-  await createCustomer(nextCustomer);
-  await loadCustomers();
+    await createCustomer(nextCustomer);
+    await loadCustomers();
+    const created = findExisting(customersRef.current || []);
+    return created || nextCustomer;
   } catch (error) {
-  setOrdersTableError(error.message || '创建客户失败');
-  }
+    // If duplicate/race occurs, reload and try to resolve existing row
+    try {
+      await loadCustomers();
+      const recovered = findExisting(customersRef.current || []);
+      if (recovered) {
+        if (normalizedAddress && recovered.address !== normalizedAddress) {
+          await updateCustomerRow(recovered.id, { address: normalizedAddress });
+          await loadCustomers();
+          const refreshed = findExisting(customersRef.current || []);
+          return refreshed || { ...recovered, address: normalizedAddress };
+        }
+        return recovered;
+      }
+    } catch {
+      // noop, keep order flow intact
+    }
 
-  return nextCustomer;
+    // final fallback: order should still be saved per business priority
+    setOrdersTableError(error.message || '创建客户失败（订单已继续保存）');
+    return nextCustomer;
   }
+}
 
   function fillFromCustomer(c) {
     setOrderForm((f) => ({ ...f, customerId: c.customerId, address: c.address || '', phone: c.phone || '', note: c.note || '' }));
