@@ -256,6 +256,15 @@ export default function TakeawayOrder() {
   driversRef.current = drivers;
   }, [drivers]);
 
+
+  useEffect(() => {
+    if (!drivers || drivers.length === 0) return;
+    setOrderForm((prev) => {
+      if (drivers.some((d) => d.id === prev.driverId)) return prev;
+      return { ...prev, driverId: drivers[0].id };
+    });
+  }, [drivers]);
+
   const driverMap = useMemo(() => {
   const map = {};
   (drivers || []).forEach((driver, index) => {
@@ -662,6 +671,10 @@ export default function TakeawayOrder() {
     const nextRouteOrder = existingOrder?.routeOrder
       || (orders.filter((o) => o.date === orderForm.date).reduce((max, o) => Math.max(max, Number(o.routeOrder || 0)), 0) + 1);
 
+    const validDriverId = (drivers || []).some((d) => d.id === orderForm.driverId)
+      ? orderForm.driverId
+      : (drivers?.[0]?.id || '');
+
     const record = {
       id: editingOrderId || uid(),
       date: orderForm.date,
@@ -673,7 +686,7 @@ export default function TakeawayOrder() {
       qty: Number(orderForm.qty || 1),
       note: orderForm.note,
       paymentMethod: existingOrder?.paymentMethod || 'other',
-      driverId: orderForm.driverId,
+      driverId: validDriverId,
       isTemp: orderForm.isTemp,
       paymentDone: existingOrder?.paymentDone || false,
       menu: menusByDate[orderForm.date] || '',
