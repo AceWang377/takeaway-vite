@@ -433,16 +433,23 @@ export default function TakeawayOrder() {
     const activeDrivers = driversRef.current || [];
     const allDrivers = allDriversRef.current || activeDrivers;
 
-    if (activeDrivers.some((d) => d.id === rawDriverId)) return rawDriverId;
-
     const historical = allDrivers.find((d) => d.id === rawDriverId);
     if (!historical) return rawDriverId;
 
     const targetName = normalizeDriverName(historical.name);
     if (!targetName) return rawDriverId;
 
-    const activeMatch = activeDrivers.find((d) => normalizeDriverName(d.name) === targetName);
-    return activeMatch?.id || rawDriverId;
+    // always normalize same-name drivers to one active canonical id
+    const activeSameName = activeDrivers
+      .filter((d) => normalizeDriverName(d.name) === targetName)
+      .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+
+    if (activeSameName.length > 0) return activeSameName[0].id;
+
+    // fallback: if driver still active and unique by id, keep it
+    if (activeDrivers.some((d) => d.id === rawDriverId)) return rawDriverId;
+
+    return rawDriverId;
   }
 
   function canonicalizeOrderDriver(order) {
@@ -473,7 +480,16 @@ export default function TakeawayOrder() {
       const rows = await listDrivers();
       const mapped = rows.map(mapDbDriver);
       allDriversRef.current = mapped;
-      const visibleDrivers = mapped.filter((d) => d.active !== false);
+      const visibleDriversRaw = mapped.filter((d) => d.active !== false)
+        .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+      const seen = new Set();
+      const visibleDrivers = visibleDriversRaw.filter((d) => {
+        const key = normalizeDriverName(d.name);
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       driversRef.current = visibleDrivers;
       setDrivers(visibleDrivers);
       setOrders((prev) => {
@@ -673,7 +689,8 @@ export default function TakeawayOrder() {
       settings
     );
 
-    const finalRecord = nextOrders.find((o) => o.id === record.id) || record;
+    const finalRecordRaw = nextOrders.find((o) => o.id === record.id) || record;
+    const finalRecord = canonicalizeOrderDriver(finalRecordRaw);
 
     customersRef.current = nextCustomers;
     setCustomers(nextCustomers);
@@ -730,11 +747,11 @@ export default function TakeawayOrder() {
     const current = ordersRef.current.find((o) => o.id === id);
     if (!current) return;
 
-    const merged = {
+    const merged = canonicalizeOrderDriver({
       ...current,
       ...patch,
       routeOrder: patch.routeOrder ?? current.routeOrder,
-    };
+    });
 
     const recalculated = applyOrders(
       ordersRef.current.map((o) => (o.id === id ? merged : o)),
