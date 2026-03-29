@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './services/supabaseClient';
 import {
   listOrdersByDate,
-  listAllOrders,
   createOrder,
   updateOrderRow,
   deleteOrderRow,
@@ -178,8 +177,10 @@ const TABS = [
   ['settings', '设置'],
 ];
 
+const ACTIVE_TAB_STORAGE_KEY = 'takeaway-active-tab';
+
 export default function TakeawayOrder() {
-  const [activeTab, setActiveTab] = useState('orders');
+  const [activeTab, setActiveTab] = useState(() => window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) || 'orders');
   const [customers, setCustomers] = useState(seedCustomers);
   const [orders, setOrders] = useState(seedOrders);
   // New to supabase
@@ -222,6 +223,12 @@ export default function TakeawayOrder() {
   });
 
   const [customerSearch, setCustomerSearch] = useState('');
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    customerId: '',
+    phone: '',
+    address: '',
+    manualCashHistory: 0,
+  });
   const [editingOrderId, setEditingOrderId] = useState(null);
   const [editingCustomerRowId, setEditingCustomerRowId] = useState(null);
   const [expenseForm, setExpenseForm] = useState({
@@ -239,6 +246,10 @@ export default function TakeawayOrder() {
   useEffect(() => {
     customersRef.current = customers;
   }, [customers]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     expensesRef.current = expenses;
@@ -422,7 +433,11 @@ export default function TakeawayOrder() {
         setIsAdmin(false);
         return;
       }
-      setIsAdmin(data?.role === 'admin');
+      const nextIsAdmin = data?.role === 'admin';
+      setIsAdmin(nextIsAdmin);
+      if (nextIsAdmin) {
+        setOrdersTableError('');
+      }
     } catch {
       setIsAdmin(false);
     }
@@ -668,16 +683,6 @@ export default function TakeawayOrder() {
     ));
   }
 
-  function moveIdInList(ids, targetId, direction) {
-    const index = ids.findIndex((id) => id === targetId);
-    if (index < 0) return ids;
-    const nextIndex = direction === 'up' ? index - 1 : index + 1;
-    if (nextIndex < 0 || nextIndex >= ids.length) return ids;
-    const nextIds = [...ids];
-    [nextIds[index], nextIds[nextIndex]] = [nextIds[nextIndex], nextIds[index]];
-    return nextIds;
-  }
-
   async function saveOrder(e) {
     if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
     e.preventDefault();
@@ -851,6 +856,100 @@ export default function TakeawayOrder() {
       await loadCustomers();
     } catch (error) {
       setOrdersTableError(error.message || '更新客户现金历史失败');
+    }
+  }
+
+  async function addCustomer(e) {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
+    e.preventDefault();
+
+    const customerId = newCustomerForm.customerId.trim();
+    const phone = newCustomerForm.phone.trim();
+    const address = newCustomerForm.address.trim();
+    const manualCashHistory = Number(newCustomerForm.manualCashHistory || 0);
+
+    if (!customerId) {
+      setOrdersTableError('请先输入客户名称');
+      return;
+    }
+
+    const duplicate = customers.some((customer) => (
+      customer.customerId.trim().toLowerCase() === customerId.toLowerCase()
+      || (phone && customer.phone.trim() === phone)
+    ));
+    if (duplicate) {
+      setOrdersTableError('客户已存在，请直接在下方列表修改');
+      return;
+    }
+
+    try {
+      await createCustomer({
+        id: uid(),
+        customerId,
+        phone,
+        address,
+        note: '',
+        manualCashHistory,
+        createdAt: new Date().toISOString(),
+      });
+      await loadCustomers();
+      setCustomerSearch(customerId);
+      setNewCustomerForm({
+        customerId: '',
+        phone: '',
+        address: '',
+        manualCashHistory: 0,
+      });
+      setOrdersTableError('');
+    } catch (error) {
+      setOrdersTableError(error.message || '新增客户失败');
+    }
+  }
+
+  async function syncCustomersFromOrders() {
+    if (!isAdmin) { setOrdersTableError('仅管理员可修改数据'); return; }
+
+    const existingKeys = new Set(customers.map((customer) => customer.customerId.trim().toLowerCase()));
+    const existingPhones = new Set(customers.map((customer) => customer.phone.trim()).filter(Boolean));
+    const latestOrderByCustomer = new Map();
+
+    orders.forEach((order) => {
+      const customerId = order.customerId.trim();
+      if (!customerId) return;
+      const current = latestOrderByCustomer.get(customerId);
+      if (!current || new Date(order.createdAt).getTime() > new Date(current.createdAt).getTime()) {
+        latestOrderByCustomer.set(customerId, order);
+      }
+    });
+
+    const missingCustomers = [...latestOrderByCustomer.values()].filter((order) => {
+      const customerKey = order.customerId.trim().toLowerCase();
+      const phone = order.phone.trim();
+      return !existingKeys.has(customerKey) && (!phone || !existingPhones.has(phone));
+    });
+
+    if (missingCustomers.length === 0) {
+      setOrdersTableError('历史订单里的客户已全部在客户库中');
+      return;
+    }
+
+    try {
+      for (const order of missingCustomers) {
+        await createCustomer({
+          id: uid(),
+          customerId: order.customerId.trim(),
+          phone: order.phone.trim(),
+          address: order.address.trim(),
+          note: order.note || '',
+          manualCashHistory: 0,
+          createdAt: order.createdAt || new Date().toISOString(),
+        });
+      }
+
+      await loadCustomers();
+      setOrdersTableError(`已从历史订单补录 ${missingCustomers.length} 位客户`);
+    } catch (error) {
+      setOrdersTableError(error.message || '从历史订单补录客户失败');
     }
   }
 
@@ -1178,6 +1277,7 @@ export default function TakeawayOrder() {
             editingOrderId={editingOrderId}
             fmtMoney={fmtMoney}
             getISOWeek={getISOWeek}
+            errorMessage={ordersTableError}
           />
         )}
         {activeTab === 'todayOrders' && (
@@ -1202,12 +1302,18 @@ export default function TakeawayOrder() {
           <CustomersTab
             customerSearch={customerSearch}
             setCustomerSearch={setCustomerSearch}
+            newCustomerForm={newCustomerForm}
+            setNewCustomerForm={setNewCustomerForm}
+            addCustomer={addCustomer}
             customerRows={customerRows}
             editingCustomerRowId={editingCustomerRowId}
             updateCustomer={updateCustomer}
             updateCustomerManualCash={updateCustomerManualCash}
             setEditingCustomerRowId={setEditingCustomerRowId}
             deleteCustomer={deleteCustomer}
+            errorMessage={ordersTableError}
+            syncCustomersFromOrders={syncCustomersFromOrders}
+            isAdmin={isAdmin}
           />
         )}
         {activeTab === 'dashboard' && (
@@ -1276,5 +1382,3 @@ export default function TakeawayOrder() {
     </div>
   );
 }
-
-

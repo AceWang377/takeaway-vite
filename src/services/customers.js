@@ -29,6 +29,7 @@ export async function createCustomer(customer) {
     address: customer.address || '',
     note: customer.note || '',
     manual_cash_history: Number(customer.manualCashHistory || 0),
+    created_at: customer.createdAt || new Date().toISOString(),
   };
 
   const { error } = await client.from('customers').insert(payload);

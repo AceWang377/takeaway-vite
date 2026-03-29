@@ -13,11 +13,13 @@ export default function OrdersTab({
   editingOrderId,
   fmtMoney,
   getISOWeek,
+  errorMessage,
 }) {
   return (
     <div className="grid lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 bg-white rounded-2xl shadow p-5">
         <h2 className="font-semibold text-lg mb-4">订单输入</h2>
+        {errorMessage && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div>}
         <form onSubmit={saveOrder} className="space-y-4">
           <div className="grid md:grid-cols-3 gap-3">
             <Field label="日期"><input type="date" value={orderForm.date} onChange={(e) => setOrderForm({ ...orderForm, date: e.target.value })} className="w-full rounded-lg border p-2" /></Field>

@@ -4,15 +4,80 @@ import { Field } from '../common/FormBits';
 export default function CustomersTab({
   customerSearch,
   setCustomerSearch,
+  newCustomerForm,
+  setNewCustomerForm,
+  addCustomer,
   customerRows,
   editingCustomerRowId,
   updateCustomer,
   updateCustomerManualCash,
   setEditingCustomerRowId,
   deleteCustomer,
+  errorMessage,
+  syncCustomersFromOrders,
+  isAdmin,
 }) {
   return (
     <div className="bg-white rounded-2xl shadow p-5 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="font-semibold">手动新增客户</h3>
+            <div className="text-sm text-slate-500">
+              {isAdmin
+                ? '可以直接手动录入客户，或从历史订单一键补录。'
+                : '登录管理员后可手动录入客户，或从历史订单一键补录。'}
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button type="button" onClick={syncCustomersFromOrders} disabled={!isAdmin} className="px-3 py-2 rounded-xl border bg-white">
+              从历史订单补录客户
+            </button>
+          </div>
+        </div>
+        {errorMessage && <div className="mb-3 text-sm text-red-600">{errorMessage}</div>}
+        <form onSubmit={addCustomer} className="grid md:grid-cols-4 gap-3 items-end">
+          <Field label="客户名称">
+            <input
+              value={newCustomerForm.customerId}
+              onChange={(e) => setNewCustomerForm({ ...newCustomerForm, customerId: e.target.value })}
+              className="w-full rounded-lg border p-2"
+              placeholder="姓名 / 微信名"
+              disabled={!isAdmin}
+            />
+          </Field>
+          <Field label="电话">
+            <input
+              value={newCustomerForm.phone}
+              onChange={(e) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })}
+              className="w-full rounded-lg border p-2"
+              placeholder="07..."
+              disabled={!isAdmin}
+            />
+          </Field>
+          <Field label="地址">
+            <input
+              value={newCustomerForm.address}
+              onChange={(e) => setNewCustomerForm({ ...newCustomerForm, address: e.target.value })}
+              className="w-full rounded-lg border p-2"
+              placeholder="地址 / 门牌"
+              disabled={!isAdmin}
+            />
+          </Field>
+          <Field label="手动现金历史">
+            <input
+              type="number"
+              min="0"
+              value={newCustomerForm.manualCashHistory}
+              onChange={(e) => setNewCustomerForm({ ...newCustomerForm, manualCashHistory: e.target.value })}
+              className="w-full rounded-lg border p-2"
+              disabled={!isAdmin}
+            />
+          </Field>
+          <button type="submit" disabled={!isAdmin} className="px-4 py-2 rounded-xl bg-slate-900 text-white">新增客户</button>
+        </form>
+      </div>
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="font-semibold text-lg">客户数据库</h2>
