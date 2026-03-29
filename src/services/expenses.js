@@ -30,6 +30,7 @@ export async function createExpense(expense) {
     channel: expense.channel,
     amount: Number(expense.amount || 0),
     note: expense.note || '',
+    created_at: expense.createdAt || new Date().toISOString(),
   };
 
   const { error } = await client.from('expenses').insert(payload);

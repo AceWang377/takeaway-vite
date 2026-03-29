@@ -29,6 +29,7 @@ export async function createDriver(driver) {
     rate: Number(driver.rate || 0),
     active: driver.active ?? true,
     sort_order: Number(driver.sortOrder || 0),
+    created_at: driver.createdAt || new Date().toISOString(),
   };
 
   const { error } = await client.from('drivers').insert(payload);

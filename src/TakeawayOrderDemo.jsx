@@ -149,6 +149,14 @@ function fmtMoney(n) {
   return `£${Number(n || 0).toFixed(2)}`;
 }
 
+function getFriendlyErrorMessage(error, fallback) {
+  const message = error?.message || '';
+  if (message.toLowerCase().includes('row-level security policy')) {
+    return 'Supabase 权限配置拦截了数据写入。请到 Supabase SQL Editor 执行仓库根目录的 admin_rls_fix.sql。';
+  }
+  return message || fallback;
+}
+
 function getDriverColorClass(index) {
   const colors = ['bg-yellow-50', 'bg-green-50', 'bg-blue-50', 'bg-purple-50', 'bg-pink-50', 'bg-cyan-50'];
   return colors[index % colors.length] || 'bg-white';
@@ -323,7 +331,7 @@ export default function TakeawayOrder() {
         if (refreshed) return refreshed;
       } catch (error) {
         // Don't block order creation; keep best-effort and continue
-        setOrdersTableError(error.message || '更新客户失败（订单已继续保存）');
+        setOrdersTableError(getFriendlyErrorMessage(error, '更新客户失败（订单已继续保存）'));
       }
     }
 
@@ -363,7 +371,7 @@ export default function TakeawayOrder() {
     }
 
     // final fallback: order should still be saved per business priority
-    setOrdersTableError(error.message || '创建客户失败（订单已继续保存）');
+    setOrdersTableError(getFriendlyErrorMessage(error, '创建客户失败（订单已继续保存）'));
     return nextCustomer;
   }
 }
@@ -556,7 +564,7 @@ export default function TakeawayOrder() {
       customersRef.current = mapped;
       setCustomers(mapped);
     } catch (error) {
-      setOrdersTableError(error.message || '读取客户列表失败');
+      setOrdersTableError(getFriendlyErrorMessage(error, '读取客户列表失败'));
     }
   }
 
@@ -855,7 +863,7 @@ export default function TakeawayOrder() {
       });
       await loadCustomers();
     } catch (error) {
-      setOrdersTableError(error.message || '更新客户现金历史失败');
+      setOrdersTableError(getFriendlyErrorMessage(error, '更新客户现金历史失败'));
     }
   }
 
@@ -902,7 +910,7 @@ export default function TakeawayOrder() {
       });
       setOrdersTableError('');
     } catch (error) {
-      setOrdersTableError(error.message || '新增客户失败');
+      setOrdersTableError(getFriendlyErrorMessage(error, '新增客户失败'));
     }
   }
 
@@ -949,7 +957,7 @@ export default function TakeawayOrder() {
       await loadCustomers();
       setOrdersTableError(`已从历史订单补录 ${missingCustomers.length} 位客户`);
     } catch (error) {
-      setOrdersTableError(error.message || '从历史订单补录客户失败');
+      setOrdersTableError(getFriendlyErrorMessage(error, '从历史订单补录客户失败'));
     }
   }
 
@@ -985,7 +993,7 @@ export default function TakeawayOrder() {
 
     await loadOrdersForDate(todayOrdersDate);
     } catch (error) {
-    setOrdersTableError(error.message || '更新客户失败');
+    setOrdersTableError(getFriendlyErrorMessage(error, '更新客户失败'));
     }
   }
 
@@ -1009,7 +1017,7 @@ export default function TakeawayOrder() {
     setEditingCustomerRowId(null);
     }
     } catch (error) {
-    setOrdersTableError(error.message || '删除客户失败');
+    setOrdersTableError(getFriendlyErrorMessage(error, '删除客户失败'));
     }
   }
 
