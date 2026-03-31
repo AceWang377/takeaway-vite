@@ -1,28 +1,18 @@
 import React from 'react';
 import { Field } from '../common/FormBits';
 
-const PAYMENT_METHOD_OPTIONS = [
-  {
-    value: 'other',
-    label: '其他',
-    style: { backgroundColor: '#f1f5f9', color: '#334155', borderColor: '#cbd5e1' },
-  },
-  {
-    value: 'wechat',
-    label: '微信',
-    style: { backgroundColor: '#dcfce7', color: '#166534', borderColor: '#86efac' },
-  },
-  {
-    value: 'transfer',
-    label: '转账',
-    style: { backgroundColor: '#ede9fe', color: '#5b21b6', borderColor: '#c4b5fd' },
-  },
-  {
-    value: 'cash',
-    label: '现金',
-    style: { backgroundColor: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' },
-  },
-];
+function getPaymentMethodStyle(paymentMethod) {
+  if (paymentMethod === 'wechat') {
+    return { backgroundColor: '#dcfce7', color: '#166534', borderColor: '#86efac' };
+  }
+  if (paymentMethod === 'transfer') {
+    return { backgroundColor: '#ede9fe', color: '#5b21b6', borderColor: '#c4b5fd' };
+  }
+  if (paymentMethod === 'cash') {
+    return { backgroundColor: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' };
+  }
+  return { backgroundColor: '#f1f5f9', color: '#334155', borderColor: '#cbd5e1' };
+}
 
 export default function TodayOrdersTab({
   ordersLoading,
@@ -140,26 +130,17 @@ export default function TodayOrdersTab({
                   <td className="py-2 px-3">{o.phone}</td>
                   <td className="py-2 px-3">{o.note || '-'}</td>
                   <td className="py-2 px-3">
-                    <div className="flex gap-2 flex-wrap">
-                      {PAYMENT_METHOD_OPTIONS.map((option) => {
-                        const isSelected = o.paymentMethod === option.value;
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => updatePaymentMethod(o.id, option.value)}
-                            className="px-2 py-1 rounded border font-medium"
-                            style={{
-                              ...option.style,
-                              boxShadow: isSelected ? 'inset 0 0 0 2px rgba(15, 23, 42, 0.18)' : 'none',
-                              opacity: isSelected ? 1 : 0.88,
-                            }}
-                          >
-                            {option.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <select
+                      value={o.paymentMethod}
+                      onChange={(e) => updatePaymentMethod(o.id, e.target.value)}
+                      className="rounded border p-1 font-medium"
+                      style={getPaymentMethodStyle(o.paymentMethod)}
+                    >
+                      <option value="other" style={getPaymentMethodStyle('other')}>其他</option>
+                      <option value="wechat" style={getPaymentMethodStyle('wechat')}>微信</option>
+                      <option value="transfer" style={getPaymentMethodStyle('transfer')}>转账</option>
+                      <option value="cash" style={getPaymentMethodStyle('cash')}>现金</option>
+                    </select>
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex gap-2 flex-wrap">

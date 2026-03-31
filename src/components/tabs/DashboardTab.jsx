@@ -6,20 +6,31 @@ export default function DashboardTab({
   setFilters,
   todayStr,
   dashboard,
+  filteredOrders,
   fmtMoney,
   drivers,
   getDriverColorClass,
   writeDriverFeeToCashflow,
+  exportDashboardOrders,
 }) {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl shadow p-5">
-        <h2 className="font-semibold text-lg mb-4">营业统计</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-semibold text-lg">营业统计</h2>
+            <div className="text-sm text-slate-500">按时间区间动态统计，并支持把当前区间订单导出为 CSV。</div>
+          </div>
+          <button onClick={exportDashboardOrders} className="px-3 py-2 rounded-lg border bg-slate-50">
+            导出统计订单
+          </button>
+        </div>
         <div className="grid md:grid-cols-3 gap-3">
           <Field label="开始日期"><input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} className="w-full rounded-lg border p-2" /></Field>
           <Field label="结束日期"><input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} className="w-full rounded-lg border p-2" /></Field>
           <div className="flex items-end"><button onClick={() => setFilters({ from: todayStr(), to: todayStr() })} className="w-full rounded-lg border p-2 bg-slate-50">切回今天</button></div>
         </div>
+        <div className="text-sm text-slate-500 mt-3">当前区间共筛选出 {filteredOrders.length} 条订单。</div>
       </div>
 
       <div className="grid md:grid-cols-4 gap-4">

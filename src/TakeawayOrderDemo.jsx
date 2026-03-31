@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './services/supabaseClient';
 import {
-  listOrdersByDate,
+  listAllOrders,
   createOrder,
   updateOrderRow,
   updateOrderPaymentMethod,
@@ -539,7 +539,7 @@ export default function TakeawayOrder() {
     setOrdersLoading(true);
     setOrdersTableError('');
     try {
-      const rows = await listOrdersByDate(date);
+      const rows = await listAllOrders();
       const mapped = rows.map(mapDbOrder).map(canonicalizeOrderDriver);
       ordersRef.current = mapped;
       setOrders(mapped);
@@ -1167,6 +1167,47 @@ export default function TakeawayOrder() {
     [filteredOrders, drivers, driverMap]
   );
 
+  function exportDashboardOrders() {
+    const rows = filteredOrders
+      .slice()
+      .sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return Number(a.routeOrder || 0) - Number(b.routeOrder || 0);
+      })
+      .map((order) => ({
+        date: order.date,
+        customer: order.customerId,
+        driver: driverMap[order.driverId]?.name || order.driverId || '',
+        qty: Number(order.qty || 0),
+        address: order.address || '',
+        phone: order.phone || '',
+        note: order.note || '',
+        paymentMethod: order.paymentMethod || 'other',
+        isFreeMeal: order.isFreeMeal ? 'yes' : 'no',
+        amount: Number(order.amount || 0).toFixed(2),
+        routeOrder: Number(order.routeOrder || 0),
+      }));
+
+    const header = ['date', 'customer', 'driver', 'qty', 'address', 'phone', 'note', 'payment_method', 'is_free_meal', 'amount', 'route_order'];
+    const escapeCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      header.join(','),
+      ...rows.map((row) => header.map((key) => escapeCsvCell(row[key])).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const from = filters.from || 'start';
+    const to = filters.to || 'end';
+    link.href = url;
+    link.download = `dashboard-orders-${from}-to-${to}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  }
+
   const currentDayOrders = useMemo(() => {
     const dayOrders = sortOrdersForRoute(orders.filter((o) => o.date === todayOrdersDate));
     return todayDriverFilter === 'all' ? dayOrders : dayOrders.filter((o) => o.driverId === todayDriverFilter);
@@ -1417,10 +1458,12 @@ export default function TakeawayOrder() {
             setFilters={setFilters}
             todayStr={todayStr}
             dashboard={dashboard}
+            filteredOrders={filteredOrders}
             fmtMoney={fmtMoney}
             drivers={drivers}
             getDriverColorClass={getDriverColorClass}
             writeDriverFeeToCashflow={writeDriverFeeToCashflow}
+            exportDashboardOrders={exportDashboardOrders}
           />
         )}
         {activeTab === 'cashflow' && (
