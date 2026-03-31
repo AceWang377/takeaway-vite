@@ -11,7 +11,7 @@ export default function DriverTab({
   driverMap,
   normalDriverOrders,
   tempDriverOrders,
-  updateOrder,
+  updatePaymentMethod,
 }) {
   return (
     <div className="space-y-6">
@@ -47,11 +47,11 @@ export default function DriverTab({
 
       <div className="bg-white rounded-2xl shadow p-5">
         <h2 className="font-semibold text-lg mb-4">司机端 · 今日正常订单</h2>
-        <DriverTable orders={normalDriverOrders} onToggle={updateOrder} driverMap={driverMap} />
+        <DriverTable orders={normalDriverOrders} onTogglePaymentMethod={updatePaymentMethod} driverMap={driverMap} />
       </div>
       <div className="bg-orange-50 border border-orange-300 rounded-2xl shadow p-5">
         <h2 className="font-semibold text-lg mb-4 text-orange-700">司机端 · 临时订餐客人高亮区</h2>
-        <DriverTable orders={tempDriverOrders} onToggle={updateOrder} driverMap={driverMap} temp />
+        <DriverTable orders={tempDriverOrders} onTogglePaymentMethod={updatePaymentMethod} driverMap={driverMap} temp />
         {tempDriverOrders.length === 0 && <div className="text-sm text-orange-700 mt-3">当前筛选条件下暂无临时加单。</div>}
       </div>
     </div>

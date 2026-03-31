@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function DriverTable({ orders, onToggle, driverMap, temp = false }) {
+export default function DriverTable({ orders, onTogglePaymentMethod, driverMap, temp = false }) {
   return (
     <div className="overflow-auto">
       <table className="w-full text-sm">
@@ -33,11 +33,23 @@ export default function DriverTable({ orders, onToggle, driverMap, temp = false 
               <td className="py-2 px-3">x{o.qty}</td>
               <td className="py-2 px-3">
                 <select
-                  value={o.paymentMethod === 'cash' ? 'cash' : 'other'}
-                  onChange={(e) => onToggle(o.id, { paymentMethod: e.target.value === 'cash' ? 'cash' : 'other' })}
-                  className={`rounded border px-2 py-1 font-medium ${o.paymentMethod === 'cash' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-700 border-slate-300'}`}
+                  value={o.paymentMethod || 'other'}
+                  onChange={(e) => onTogglePaymentMethod(o.id, e.target.value)}
+                  className={
+                    `rounded border px-2 py-1 font-medium ${
+                      o.paymentMethod === 'cash'
+                        ? 'bg-amber-100 text-orange-700 border-amber-300'
+                        : o.paymentMethod === 'wechat'
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                          : o.paymentMethod === 'transfer'
+                            ? 'bg-purple-50 text-slate-700 border-slate-300'
+                            : 'bg-slate-100 text-slate-700 border-slate-300'
+                    }`
+                  }
                 >
                   <option value="other">其他</option>
+                  <option value="wechat">微信</option>
+                  <option value="transfer">转账</option>
                   <option value="cash">现金</option>
                 </select>
               </td>

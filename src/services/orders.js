@@ -88,6 +88,17 @@ export async function updateOrderRow(id, patch) {
   return true;
 }
 
+export async function updateOrderPaymentMethod(id, paymentMethod) {
+  const client = ensureSupabase();
+  const { error } = await client.rpc('public_update_order_payment_method', {
+    p_order_id: id,
+    p_payment_method: paymentMethod,
+  });
+
+  if (error) throw error;
+  return true;
+}
+
 export async function deleteOrderRow(id) {
   const client = ensureSupabase();
   const { error } = await client.from('orders').delete().eq('id', id);
