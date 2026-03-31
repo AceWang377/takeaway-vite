@@ -1,6 +1,29 @@
 import React from 'react';
 import { Field } from '../common/FormBits';
 
+const PAYMENT_METHOD_OPTIONS = [
+  {
+    value: 'other',
+    label: '其他',
+    style: { backgroundColor: '#f1f5f9', color: '#334155', borderColor: '#cbd5e1' },
+  },
+  {
+    value: 'wechat',
+    label: '微信',
+    style: { backgroundColor: '#dcfce7', color: '#166534', borderColor: '#86efac' },
+  },
+  {
+    value: 'transfer',
+    label: '转账',
+    style: { backgroundColor: '#ede9fe', color: '#5b21b6', borderColor: '#c4b5fd' },
+  },
+  {
+    value: 'cash',
+    label: '现金',
+    style: { backgroundColor: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' },
+  },
+];
+
 export default function TodayOrdersTab({
   ordersLoading,
   ordersTableError,
@@ -11,8 +34,11 @@ export default function TodayOrdersTab({
   drivers,
   getDriverColorClass,
   currentDayOrders,
+  todaySummary,
   driverMap,
+  isAdmin,
   updateOrder,
+  updatePaymentMethod,
   moveOrder,
   editOrder,
   deleteOrder,
@@ -22,7 +48,7 @@ export default function TodayOrdersTab({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="font-semibold text-lg">今日订单列表</h2>
-          <div className="text-sm text-slate-500">在这里确认支付方式、调整顺序、筛选司机。不同司机订单用不同背景色区分。</div>
+          <div className="text-sm text-slate-500">在这里确认支付方式、调整顺序、筛选司机。不同司机订单用不同背景色区分，支付方式所有人可改，其余编辑仅管理员可操作。</div>
         </div>
         {ordersLoading && <div className="text-sm text-slate-500">正在从 Supabase 读取订单...</div>}
         {ordersTableError && <div className="text-sm text-red-600">{ordersTableError}</div>}
@@ -45,6 +71,35 @@ export default function TodayOrdersTab({
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl border bg-slate-50 p-3">
+          <div className="text-xs text-slate-500">订单数</div>
+          <div className="text-xl font-bold">{todaySummary.totalOrders}</div>
+        </div>
+        <div className="rounded-xl border bg-blue-50 p-3">
+          <div className="text-xs text-slate-500">总份数</div>
+          <div className="text-xl font-bold">{todaySummary.totalQty}</div>
+        </div>
+        <div className="rounded-xl border bg-emerald-50 p-3">
+          <div className="text-xs text-slate-500">今日营收</div>
+          <div className="text-xl font-bold">£{Number(todaySummary.totalAmount || 0).toFixed(2)}</div>
+        </div>
+        <div className="rounded-xl border bg-amber-50 p-3">
+          <div className="text-xs text-slate-500">免餐单数</div>
+          <div className="text-xl font-bold">{todaySummary.freeMealCount}</div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {todaySummary.paymentBreakdown.map((item) => (
+          <div key={item.value} className="rounded-xl border p-3" style={item.style}>
+            <div className="text-xs" style={{ opacity: 0.8 }}>{item.label}</div>
+            <div className="font-semibold">{item.count} 单</div>
+            <div className="text-sm">£{Number(item.amount || 0).toFixed(2)}</div>
+          </div>
+        ))}
       </div>
 
       <div className="overflow-auto">
@@ -71,7 +126,12 @@ export default function TodayOrdersTab({
                   <td className="py-2 px-3">{index + 1}</td>
                   <td className="py-2 px-3 font-medium"><div className="flex items-center gap-2"><span>{o.customerId}</span>{o.isFreeMeal && <span className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">免餐</span>}</div></td>
                   <td className="py-2 px-3">
-                    <select value={o.driverId || ''} onChange={(e) => updateOrder(o.id, { driverId: e.target.value })} className="rounded border p-1 bg-white">
+                    <select
+                      value={o.driverId || ''}
+                      onChange={(e) => updateOrder(o.id, { driverId: e.target.value })}
+                      disabled={!isAdmin}
+                      className={`rounded border p-1 bg-white ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
                       {(drivers || []).map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
                     </select>
                   </td>
@@ -80,23 +140,37 @@ export default function TodayOrdersTab({
                   <td className="py-2 px-3">{o.phone}</td>
                   <td className="py-2 px-3">{o.note || '-'}</td>
                   <td className="py-2 px-3">
-                    <select value={o.paymentMethod} onChange={(e) => updateOrder(o.id, { paymentMethod: e.target.value })} className="rounded border p-1 bg-white">
-                      <option value="other">其他</option>
-                      <option value="wechat">微信</option>
-                      <option value="transfer">转账</option>
-                      <option value="cash">现金</option>
-                    </select>
-                  </td>
-                  <td className="py-2 px-3">
                     <div className="flex gap-2 flex-wrap">
-                      <button type="button" onClick={() => moveOrder(o.id, 'up')} className="px-2 py-1 rounded border bg-white">上移</button>
-                      <button type="button" onClick={() => moveOrder(o.id, 'down')} className="px-2 py-1 rounded border bg-white">下移</button>
+                      {PAYMENT_METHOD_OPTIONS.map((option) => {
+                        const isSelected = o.paymentMethod === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => updatePaymentMethod(o.id, option.value)}
+                            className="px-2 py-1 rounded border font-medium"
+                            style={{
+                              ...option.style,
+                              boxShadow: isSelected ? 'inset 0 0 0 2px rgba(15, 23, 42, 0.18)' : 'none',
+                              opacity: isSelected ? 1 : 0.88,
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex gap-2 flex-wrap">
-                      <button onClick={() => editOrder(o)} className="px-2 py-1 rounded border bg-blue-50 text-blue-700 border-blue-200">修改</button>
-                      <button onClick={() => deleteOrder(o.id)} className="px-2 py-1 rounded border bg-red-50 text-red-700 border-red-200">删除</button>
+                      <button type="button" onClick={() => moveOrder(o.id, 'up')} disabled={!isAdmin} className={`px-2 py-1 rounded border bg-white ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>上移</button>
+                      <button type="button" onClick={() => moveOrder(o.id, 'down')} disabled={!isAdmin} className={`px-2 py-1 rounded border bg-white ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>下移</button>
+                    </div>
+                  </td>
+                  <td className="py-2 px-3">
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => editOrder(o)} disabled={!isAdmin} className={`px-2 py-1 rounded border bg-blue-50 text-blue-700 border-blue-200 ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>修改</button>
+                      <button onClick={() => deleteOrder(o.id)} disabled={!isAdmin} className={`px-2 py-1 rounded border bg-red-50 text-red-700 border-red-200 ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>删除</button>
                     </div>
                   </td>
                 </tr>

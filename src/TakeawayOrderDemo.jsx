@@ -4,6 +4,7 @@ import {
   listOrdersByDate,
   createOrder,
   updateOrderRow,
+  updateOrderPaymentMethod,
   deleteOrderRow,
   batchUpdateRouteOrders,
 } from './services/orders';
@@ -149,10 +150,32 @@ function fmtMoney(n) {
   return `£${Number(n || 0).toFixed(2)}`;
 }
 
+const PAYMENT_METHOD_META = {
+  other: {
+    label: '其他',
+    style: { backgroundColor: '#f1f5f9', color: '#334155', borderColor: '#cbd5e1' },
+  },
+  wechat: {
+    label: '微信',
+    style: { backgroundColor: '#dcfce7', color: '#166534', borderColor: '#86efac' },
+  },
+  transfer: {
+    label: '转账',
+    style: { backgroundColor: '#ede9fe', color: '#5b21b6', borderColor: '#c4b5fd' },
+  },
+  cash: {
+    label: '现金',
+    style: { backgroundColor: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' },
+  },
+};
+
 function getFriendlyErrorMessage(error, fallback) {
   const message = error?.message || '';
   if (message.toLowerCase().includes('row-level security policy')) {
     return 'Supabase 权限配置拦截了数据写入。请到 Supabase SQL Editor 执行仓库根目录的 admin_rls_fix.sql。';
+  }
+  if (message.toLowerCase().includes('public_update_order_payment_method')) {
+    return '支付方式公共修改接口尚未在 Supabase 建好。请执行仓库根目录的 public_payment_method_update.sql。';
   }
   return message || fallback;
 }
@@ -830,6 +853,41 @@ export default function TakeawayOrder() {
     await loadOrdersForDate(todayOrdersDate);
   }
 
+  async function updatePublicPaymentMethod(id, paymentMethod) {
+    const current = ordersRef.current.find((o) => o.id === id);
+    if (!current || current.paymentMethod === paymentMethod) return;
+
+    const previousOrders = ordersRef.current;
+    const optimisticOrders = applyOrders(
+      ordersRef.current.map((o) => (o.id === id ? { ...o, paymentMethod } : o)),
+      customers,
+      settings
+    );
+
+    ordersRef.current = optimisticOrders;
+    setOrders(optimisticOrders);
+    setOrdersTableError('');
+
+    try {
+      if (isAdmin) {
+        const finalOrder = optimisticOrders.find((o) => o.id === id);
+        await updateOrderRow(id, {
+          paymentMethod: finalOrder?.paymentMethod || paymentMethod,
+          amount: finalOrder?.amount,
+          isFreeMeal: finalOrder?.isFreeMeal,
+        });
+      } else {
+        await updateOrderPaymentMethod(id, paymentMethod);
+      }
+
+      await loadOrdersForDate(todayOrdersDate);
+    } catch (error) {
+      ordersRef.current = previousOrders;
+      setOrders(previousOrders);
+      setOrdersTableError(getFriendlyErrorMessage(error, '更新支付方式失败'));
+    }
+  }
+
   function editOrder(order) {
     setEditingOrderId(order.id);
     setOrderForm({
@@ -1114,6 +1172,32 @@ export default function TakeawayOrder() {
     return todayDriverFilter === 'all' ? dayOrders : dayOrders.filter((o) => o.driverId === todayDriverFilter);
   }, [orders, todayOrdersDate, todayDriverFilter]);
 
+  const todayOrdersSummary = useMemo(() => {
+    const paymentBreakdown = Object.entries(PAYMENT_METHOD_META).map(([value, meta]) => ({
+      value,
+      label: meta.label,
+      style: meta.style,
+      count: 0,
+      amount: 0,
+    }));
+    const paymentMap = new Map(paymentBreakdown.map((item) => [item.value, item]));
+
+    currentDayOrders.forEach((order) => {
+      const bucket = paymentMap.get(order.paymentMethod) || paymentMap.get('other');
+      if (!bucket) return;
+      bucket.count += 1;
+      bucket.amount += Number(order.amount || 0);
+    });
+
+    return {
+      totalOrders: currentDayOrders.length,
+      totalQty: currentDayOrders.reduce((sum, order) => sum + Number(order.qty || 0), 0),
+      totalAmount: currentDayOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0),
+      freeMealCount: currentDayOrders.filter((order) => order.isFreeMeal).length,
+      paymentBreakdown,
+    };
+  }, [currentDayOrders]);
+
   const driverOrdersToday = useMemo(() => {
     return sortOrdersForRoute(orders.filter((o) => o.date === todayOrdersDate));
   }, [orders, todayOrdersDate]);
@@ -1299,8 +1383,11 @@ export default function TakeawayOrder() {
             drivers={drivers}
             getDriverColorClass={getDriverColorClass}
             currentDayOrders={currentDayOrders}
+            todaySummary={todayOrdersSummary}
             driverMap={driverMap}
+            isAdmin={isAdmin}
             updateOrder={updateOrder}
+            updatePaymentMethod={updatePublicPaymentMethod}
             moveOrder={moveOrder}
             editOrder={editOrder}
             deleteOrder={deleteOrder}
@@ -1357,7 +1444,7 @@ export default function TakeawayOrder() {
             driverMap={driverMap}
             normalDriverOrders={normalDriverOrders}
             tempDriverOrders={tempDriverOrders}
-            updateOrder={updateOrder}
+            updatePaymentMethod={updatePublicPaymentMethod}
           />
         )}
         {activeTab === 'settings' && (
