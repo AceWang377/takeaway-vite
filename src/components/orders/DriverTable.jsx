@@ -5,7 +5,7 @@ export default function DriverTable({ orders, onTogglePaymentMethod, driverMap, 
     <div className="overflow-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className={`border-b text-left ${temp ? 'bg-orange-100' : 'bg-slate-50'}`}>
+          <tr className={`border-b text-left ${temp ? 'bg-amber-50' : 'bg-slate-50'}`}>
             <th className="py-2 px-3">客户</th>
             <th className="py-2 px-3">电话</th>
             <th className="py-2 px-3">地址</th>
@@ -16,7 +16,7 @@ export default function DriverTable({ orders, onTogglePaymentMethod, driverMap, 
         </thead>
         <tbody>
           {orders.map((o) => (
-            <tr key={o.id} className={`border-b ${temp ? 'bg-orange-50' : driverMap[o.driverId]?.colorClass || 'bg-white'}`}>
+            <tr key={o.id} className={`border-b ${temp ? 'bg-amber-50' : driverMap[o.driverId]?.colorClass || 'bg-white'}`}>
               <td className="py-2 px-3 font-medium">
                 <div className="flex items-center gap-2">
                   <span>{o.customerId}</span>

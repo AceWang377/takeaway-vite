@@ -61,11 +61,11 @@ export default function OrdersTab({
             </Field>
             <label className="flex items-center gap-2 rounded-xl border p-3 bg-slate-50 mt-6">
               <input type="checkbox" checked={orderForm.isTemp} onChange={(e) => setOrderForm({ ...orderForm, isTemp: e.target.checked })} />
-              <span>临时订餐客人</span>
+              <span>晚餐</span>
             </label>
           </div>
 
-          <Field label="特别备注"><textarea value={orderForm.note} onChange={(e) => setOrderForm({ ...orderForm, note: e.target.value })} className="w-full rounded-lg border p-2 min-h-24" placeholder="少饭、加辣、房号、临时加单说明..." /></Field>
+          <Field label="特别备注"><textarea value={orderForm.note} onChange={(e) => setOrderForm({ ...orderForm, note: e.target.value })} className="w-full rounded-lg border p-2 min-h-24" placeholder="少饭、加辣、房号、晚餐说明..." /></Field>
 
           <div className="flex items-center justify-between rounded-xl bg-slate-100 p-3">
             <div>

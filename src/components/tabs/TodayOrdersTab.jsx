@@ -112,7 +112,7 @@ export default function TodayOrdersTab({
             {currentDayOrders.map((o, index) => {
               const driver = driverMap[o.driverId];
               return (
-                <tr key={o.id} className={`border-b ${o.isTemp ? 'bg-orange-50' : driver?.colorClass || 'bg-white'}`}>
+                <tr key={o.id} className={`border-b ${o.isTemp ? 'bg-amber-50' : driver?.colorClass || 'bg-white'}`}>
                   <td className="py-2 px-3">{index + 1}</td>
                   <td className="py-2 px-3 font-medium"><div className="flex items-center gap-2"><span>{o.customerId}</span>{o.isFreeMeal && <span className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">免餐</span>}</div></td>
                   <td className="py-2 px-3">
